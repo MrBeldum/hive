@@ -144,6 +144,10 @@ sqlc generate        # directly
 
 Always commit the generated `*.sql.go` and `models.go` alongside the SQL changes in the same commit.
 
+### Migrations
+
+Migrations are additive only: no dropped or renamed tables or columns, and no `NOT NULL` column without a default. An older build reads a database that a newer build migrated, and it opens that database read-only (`db.ErrSchemaAhead`). A migration that removes or renames something breaks those reads.
+
 ## Code Patterns
 
 ### Integration Tests

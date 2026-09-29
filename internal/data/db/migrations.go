@@ -25,26 +25,43 @@ func migrationsSub() (fs.FS, error) {
 // runMigrations applies all pending migrations to the hive database, seeding
 // schema_migrations from the legacy schema_version table on first run so
 // databases created before the migration framework are not re-applied.
-func runMigrations(ctx context.Context, conn *sql.DB) error {
+//
+// It returns the schema version of the database and of this build. When a
+// newer build migrated the database, dbVersion is the greater one and
+// runMigrations applies nothing.
+func runMigrations(ctx context.Context, conn *sql.DB) (dbVersion, binaryVersion int, err error) {
 	sub, err := migrationsSub()
 	if err != nil {
-		return fmt.Errorf("opening migrations fs: %w", err)
+		return 0, 0, fmt.Errorf("opening migrations fs: %w", err)
 	}
 
 	migrations, err := migrate.Load(sub)
 	if err != nil {
-		return fmt.Errorf("loading migrations: %w", err)
+		return 0, 0, fmt.Errorf("loading migrations: %w", err)
 	}
+	binaryVersion = latestVersion(migrations)
 
 	if err := migrate.EnsureTable(ctx, conn); err != nil {
-		return err
+		return 0, 0, err
 	}
 
 	if err := bootstrapFromLegacy(ctx, conn, migrations); err != nil {
-		return err
+		return 0, 0, err
 	}
 
-	return migrate.Apply(ctx, conn, migrations)
+	applied, err := migrate.AppliedVersions(ctx, conn)
+	if err != nil {
+		return 0, 0, err
+	}
+	if dbVersion = maxVersion(applied); dbVersion > binaryVersion {
+		return dbVersion, binaryVersion, nil
+	}
+
+	if err := migrate.Apply(ctx, conn, migrations); err != nil {
+		return 0, 0, err
+	}
+
+	return binaryVersion, binaryVersion, nil
 }
 
 // bootstrapFromLegacy checks for the legacy schema_version table and seeds

@@ -29,7 +29,7 @@ func (s *NotifyStore) Save(ctx context.Context, n notify.Notification) (int64, e
 		CreatedAt: n.CreatedAt.UnixNano(),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("insert notification: %w", err)
+		return 0, fmt.Errorf("insert notification: %w", s.db.WriteError(err))
 	}
 
 	return id, nil

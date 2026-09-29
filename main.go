@@ -247,6 +247,14 @@ Run 'hive new' to create a new session from the current repository.`,
 			if err != nil {
 				return ctx, fmt.Errorf("open database: %w", err)
 			}
+			if database.ReadOnly() {
+				dbVersion, binaryVersion := database.SchemaVersions()
+				fmt.Fprintf(os.Stderr, "warning: %s\n", &db.SchemaAheadError{
+					Binary:        db.DefaultOpenOptions().Binary,
+					DBVersion:     dbVersion,
+					BinaryVersion: binaryVersion,
+				})
+			}
 
 			// Migrate from JSON files if they exist
 			if err := stores.MigrateFromJSON(ctx, database, cfg.DataDir); err != nil {

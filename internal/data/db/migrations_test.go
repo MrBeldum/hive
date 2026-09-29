@@ -79,7 +79,7 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	ctx := context.Background()
 
 	// Running again should be a no-op.
-	err := runMigrations(ctx, database.Conn())
+	_, _, err := runMigrations(ctx, database.Conn())
 	assert.NoError(t, err, "second runMigrations should be idempotent")
 }
 
@@ -103,7 +103,7 @@ func TestRunMigrations_LegacyBootstrap(t *testing.T) {
 	require.NoError(t, err, "creating legacy schema_version")
 
 	// runMigrations should bootstrap schema_migrations from the legacy version.
-	err = runMigrations(ctx, conn)
+	_, _, err = runMigrations(ctx, conn)
 	require.NoError(t, err, "runMigrations with legacy DB")
 
 	applied, err := migrate.AppliedVersions(ctx, conn)
@@ -122,7 +122,7 @@ func TestRunMigrations_LegacyBootstrap_EmptySchemaVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	// runMigrations should handle NULL MAX(version) without error.
-	err = runMigrations(ctx, conn)
+	_, _, err = runMigrations(ctx, conn)
 	require.NoError(t, err, "runMigrations with empty schema_version table")
 
 	// All migrations should be applied normally (bootstrap was a no-op).

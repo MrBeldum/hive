@@ -315,7 +315,7 @@ func (s *HCStore) AddComment(ctx context.Context, c hc.Comment) error {
 		CreatedAt: c.CreatedAt.UnixNano(),
 	})
 	if err != nil {
-		return fmt.Errorf("add hc comment: %w", err)
+		return fmt.Errorf("add hc comment: %w", s.db.WriteError(err))
 	}
 	return nil
 }
