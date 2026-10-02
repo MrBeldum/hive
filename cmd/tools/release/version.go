@@ -8,7 +8,17 @@ import (
 	"strings"
 )
 
-var versionPattern = regexp.MustCompile(`^(?:desktop-v)?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(dev|beta)\.([0-9]+))?$`)
+// versionPattern reads every version this repository has published: the CLI's
+// v* tags, the desktop's desktop-v* tags, and the dev and beta prereleases the
+// desktop channels carried before every program shared one version. Only a
+// bare X.Y.Z is publishable now (parsePublishVersion).
+var versionPattern = regexp.MustCompile(`^(?:desktop-)?v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(dev|beta)\.([0-9]+))?$`)
+
+// manifestChannels are the desktop update manifests every release writes.
+// There is one release line, but installs that follow the beta or dev
+// manifest still exist, and they converge only if those manifests carry the
+// same release (ADR every-program-ships-under-one-shared-version).
+var manifestChannels = []string{"stable", "beta", "dev"}
 
 type baseVersion struct {
 	major int
@@ -22,17 +32,18 @@ type releaseVersion struct {
 	number     int
 }
 
-func validChannel(channel string) bool {
-	return channel == "dev" || channel == "beta" || channel == "stable"
-}
-
+// parsePublishVersion accepts a version a release can publish: X.Y.Z, with no
+// tag prefix and no prerelease.
 func parsePublishVersion(value string) (releaseVersion, error) {
 	version, err := parseVersion(value)
 	if err != nil {
 		return releaseVersion{}, err
 	}
+	if version.prerelease != "" {
+		return releaseVersion{}, fmt.Errorf("%s is a prerelease: every release is X.Y.Z", version)
+	}
 	if strings.TrimSpace(value) != version.String() {
-		return releaseVersion{}, errors.New("expected version without desktop-v prefix")
+		return releaseVersion{}, errors.New("expected a version without a v or desktop-v prefix")
 	}
 	return version, nil
 }
@@ -40,7 +51,7 @@ func parsePublishVersion(value string) (releaseVersion, error) {
 func parseVersion(value string) (releaseVersion, error) {
 	match := versionPattern.FindStringSubmatch(strings.TrimSpace(value))
 	if match == nil {
-		return releaseVersion{}, errors.New("expected X.Y.Z or X.Y.Z-(dev|beta).N")
+		return releaseVersion{}, errors.New("expected X.Y.Z")
 	}
 
 	parts := make([]int, 4)
@@ -72,34 +83,20 @@ func (v releaseVersion) String() string {
 	return fmt.Sprintf("%s-%s.%d", base, v.prerelease, v.number)
 }
 
-func (v releaseVersion) channel() string {
-	if v.prerelease == "" {
-		return "stable"
-	}
-	return v.prerelease
-}
+// tag is the git tag of a release. Every program shares it: the CLI's go
+// install and Homebrew cask read it, and the desktop's release records it.
+func (v releaseVersion) tag() string { return "v" + v.String() }
 
-func (v releaseVersion) affectedChannels() []string {
-	switch v.channel() {
-	case "stable":
-		return []string{"stable", "beta", "dev"}
-	case "beta":
-		return []string{"beta", "dev"}
-	default:
-		return []string{"dev"}
-	}
-}
-
-// compareChannelRelease orders versions by base version and then by the
-// product's channel promotion path: dev, beta, stable. SemVer orders the words
-// "beta" and "dev" lexically, which is the opposite of this product's release
-// progression and would reject an intentional dev-to-beta promotion.
-func compareChannelRelease(left, right releaseVersion) int {
+// compareVersions orders versions by base version and then along the
+// promotion path the desktop channels used: dev, beta, stable. SemVer orders
+// the words "beta" and "dev" lexically, which is the reverse, and the release
+// history still holds both.
+func compareVersions(left, right releaseVersion) int {
 	if result := compareBase(left.base, right.base); result != 0 {
 		return result
 	}
 	rank := func(version releaseVersion) int {
-		switch version.channel() {
+		switch version.prerelease {
 		case "dev":
 			return 0
 		case "beta":
@@ -124,63 +121,52 @@ func compareChannelRelease(left, right releaseVersion) int {
 	}
 }
 
-func nextVersion(channel string, versions []releaseVersion) string {
-	base := baseVersion{minor: 1}
-	if len(versions) > 0 {
-		base = versions[0].base
-		for _, version := range versions[1:] {
-			if compareBase(version.base, base) > 0 {
-				base = version.base
-			}
-		}
-	}
+type bumpLevel string
 
-	var existing []releaseVersion
-	for _, version := range versions {
-		if compareBase(version.base, base) == 0 {
-			existing = append(existing, version)
-		}
-	}
+const (
+	bumpPatch bumpLevel = "patch"
+	bumpMinor bumpLevel = "minor"
+	bumpMajor bumpLevel = "major"
+)
 
-	hasStable := false
-	hasBeta := false
-	for _, version := range existing {
-		hasStable = hasStable || version.prerelease == ""
-		hasBeta = hasBeta || version.prerelease == "beta"
+func parseBumpLevel(value string) (bumpLevel, error) {
+	switch level := bumpLevel(value); level {
+	case bumpPatch, bumpMinor, bumpMajor:
+		return level, nil
+	default:
+		return "", fmt.Errorf("unknown bump level %q: expected patch, minor, or major", value)
 	}
-
-	suffix := ""
-	switch channel {
-	case "dev":
-		if hasStable || hasBeta {
-			base.patch++
-			suffix = "-dev.1"
-		} else {
-			suffix = fmt.Sprintf("-dev.%d", nextPrereleaseNumber(existing, "dev"))
-		}
-	case "beta":
-		if hasStable {
-			base.patch++
-			suffix = "-beta.1"
-		} else {
-			suffix = fmt.Sprintf("-beta.%d", nextPrereleaseNumber(existing, "beta"))
-		}
-	case "stable":
-		if hasStable {
-			base.patch++
-		}
-	}
-	return fmt.Sprintf("%d.%d.%d%s", base.major, base.minor, base.patch, suffix)
 }
 
-func nextPrereleaseNumber(versions []releaseVersion, prerelease string) int {
-	maximum := 0
-	for _, version := range versions {
-		if version.prerelease == prerelease && version.number > maximum {
-			maximum = version.number
+// nextVersion bumps the newest published version of any program. Every
+// program shares the version, so the CLI's v0.59.0 and the desktop's 0.9.x
+// both count, and the next release advances past all of them.
+func nextVersion(published []releaseVersion, level bumpLevel) releaseVersion {
+	newest, _ := newestVersion(published)
+	base := newest.base
+	switch level {
+	case bumpMajor:
+		return releaseVersion{base: baseVersion{major: base.major + 1}}
+	case bumpMinor:
+		return releaseVersion{base: baseVersion{major: base.major, minor: base.minor + 1}}
+	default:
+		// A prerelease base has not shipped as itself, but the release line
+		// has no prereleases now, so its next patch is still above it.
+		return releaseVersion{base: baseVersion{major: base.major, minor: base.minor, patch: base.patch + 1}}
+	}
+}
+
+func newestVersion(versions []releaseVersion) (releaseVersion, bool) {
+	if len(versions) == 0 {
+		return releaseVersion{}, false
+	}
+	newest := versions[0]
+	for _, version := range versions[1:] {
+		if compareVersions(version, newest) > 0 {
+			newest = version
 		}
 	}
-	return maximum + 1
+	return newest, true
 }
 
 func compareBase(left, right baseVersion) int {
