@@ -41,11 +41,13 @@ are allowed.
 
 ## Input
 {{if .Sample}}
-A real payload captured from this endpoint:
+A real payload captured from this endpoint. {{untrustedNotice}}
 
+{{untrustedStart "source" "webhook" "endpoint" .Path}}
 ```json
 {{.Sample}}
 ```
+{{untrustedEnd}}
 {{else}}
 No payload has been captured from this endpoint yet. Here is a sample payload
 the sender will POST:

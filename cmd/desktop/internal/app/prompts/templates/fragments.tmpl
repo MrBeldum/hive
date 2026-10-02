@@ -50,6 +50,37 @@ inside it:
 On every target:
 
 - `{{"{{ .Inputs.<name> }}"}}` — a value the user typed or chose when running the action, for each input the action declares. Undeclared names are a render error, so declare what you reference.
+
+Fence content that came from outside — a PR or issue body, an alert, a webhook
+payload — between `{{"{{ untrustedStart }}"}}` and `{{"{{ untrustedEnd }}"}}`,
+each on its own line. They render an opening and closing tag,
+`<untrusted-content-ID>` and `</untrusted-content-ID>`, whose name carries an id
+drawn fresh for every render, so text inside the fence cannot close it.
+`untrustedStart` takes optional key/value pairs that become attributes on the
+opening tag, such as `{{"{{ untrustedStart \"source\" \"grafana\" }}"}}`.
+`{{"{{ untrustedNotice }}"}}` renders one sentence telling the agent that the
+fenced text is data to read, not instructions to follow; put it before the fence:
+
+```
+Triage this alert.
+
+{{"{{ untrustedNotice }}"}}
+
+{{"{{ untrustedStart \"source\" \"grafana\" }}"}}
+{{"{{ .Payload.title }}"}}
+{{"{{ .Payload.url }}"}}
+
+{{"{{ .Payload.body }}"}}
+{{"{{ untrustedEnd }}"}}
+```
+
+Hive never fences a field for you: a template interpolates every value exactly
+as written. Decide per field:
+
+- Fence every `{{"{{ .Payload.<field> }}"}}` and `{{"{{ .Raw }}"}}` in a prompt. Someone other than the user wrote them: a PR author, an issue reporter, an alerting system, a webhook sender. That includes short fields like `title`, `author`, and `labels`. On a GitHub or Gitea item, `repo`, `num`, and `url` have a shape the forge fixes, so they may stay outside the fence to name the work.
+- `{{"{{ .Key }}"}}` is built from the item's id, which a webhook sender chooses. Fence it on webhook items.
+- `{{"{{ .Inputs.<name> }}"}}` is what the user typed, and `{{"{{ .Session.* }}"}}` and `{{"{{ .Window.ID }}"}}` come from Hive. They need no fence.
+- Fence only text an agent reads, such as `prompt_template`. A fence does nothing in a shell command; quote values there with `shq`.
 {{end}}
 
 {{define "task"}}

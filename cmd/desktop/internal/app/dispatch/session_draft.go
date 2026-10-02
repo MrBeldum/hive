@@ -154,7 +154,10 @@ func SessionDraftFromMetadata(meta map[string]string) (SessionDraft, bool) {
 // DefaultSessionPromptTemplate renders an inbox item into the starting prompt
 // for a session created from it. Repo is omitted; it prefills the form's own
 // repository field.
-const DefaultSessionPromptTemplate = `{{ .Title }}
+const DefaultSessionPromptTemplate = `{{ untrustedNotice }}
+
+{{ untrustedStart "kind" (or .Kind "Item") }}
+{{ .Title }}
 {{- if .URL }}
 
 {{ .URL }}
@@ -162,7 +165,8 @@ const DefaultSessionPromptTemplate = `{{ .Title }}
 {{- if .Body }}
 
 {{ .Body }}
-{{- end }}`
+{{- end }}
+{{ untrustedEnd }}`
 
 // SessionPromptData is the canonical item contract (ADR canonical-item-contract) the session
 // prompt template renders over. Keep in sync with the frontend's
