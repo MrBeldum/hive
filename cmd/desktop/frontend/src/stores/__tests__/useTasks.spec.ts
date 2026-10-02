@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
+import { useTasks } from '../useTasks'
 
 const mocks = vi.hoisted(() => ({
   ListTasks: vi.fn(),
@@ -51,14 +52,8 @@ function appError(kind: string, message = 'boom') {
   return Object.assign(new Error(message), { cause: { kind, message } })
 }
 
-async function loadComposable() {
-  const { useTasks } = await import('../useTasks')
-  return useTasks()
-}
-
 describe('useTasks', () => {
   beforeEach(() => {
-    vi.resetModules()
     vi.clearAllMocks()
     mocks.On.mockReturnValue(() => {})
     mocks.Focused.mockResolvedValue(true)
@@ -72,19 +67,19 @@ describe('useTasks', () => {
   })
 
   // window:focus's real handler is registered by the (unmocked) useWindowFocus
-  // module; grabbing it lets tests drive it the same way the native runtime would.
+  // store; grabbing it lets tests drive it the same way the native runtime would.
   function focusHandler(): () => void {
-    return mocks.On.mock.calls.find(([name]) => name === 'window:focus')?.[1]
+    return mocks.On.mock.calls.find(([name]) => name === 'window:focus')?.[1] as () => void
   }
   function blurHandler(): () => void {
-    return mocks.On.mock.calls.find(([name]) => name === 'window:blur')?.[1]
+    return mocks.On.mock.calls.find(([name]) => name === 'window:blur')?.[1] as () => void
   }
 
   it('persists repo, filter and collapsed state under their storage keys', async () => {
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
-    tasks.repoKey.value = 'acme/site'
-    tasks.filter.value = 'active'
+    tasks.setRepoKey('acme/site')
+    tasks.setFilter('active')
     tasks.toggleCollapsed('epic-1')
     await nextTick()
 
@@ -101,7 +96,7 @@ describe('useTasks', () => {
   it('polls on a self-rescheduling 2s timer and picks up external writes', async () => {
     vi.useFakeTimers()
     mocks.ListTasks.mockResolvedValue([task('t1')])
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
     tasks.startPolling()
     await vi.advanceTimersByTimeAsync(0)
@@ -123,7 +118,7 @@ describe('useTasks', () => {
   it('keeps last-seen items, sets error, and keeps polling on a poll failure', async () => {
     vi.useFakeTimers()
     mocks.ListTasks.mockResolvedValueOnce([task('t1')]).mockRejectedValueOnce(appError('internal', 'temporary failure'))
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
     tasks.startPolling()
     await vi.advanceTimersByTimeAsync(0)
@@ -144,9 +139,9 @@ describe('useTasks', () => {
   it('clears a selection the freshly loaded list no longer contains', async () => {
     mocks.ListTasks.mockResolvedValue([task('t1')])
     mocks.ReadTaskDetail.mockResolvedValue(detail('t1'))
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
-    await tasks.refresh()
+    await tasks.reload()
     tasks.select('t1')
     await flushPromises()
     expect(tasks.selectedId.value).toBe('t1')
@@ -155,16 +150,33 @@ describe('useTasks', () => {
     // cross-scope detail read itself still succeeds, so only the list
     // membership check can catch this.
     mocks.ListTasks.mockResolvedValue([task('t2', { repoKey: 'acme/other' })])
-    tasks.repoKey.value = 'acme/other'
+    tasks.setRepoKey('acme/other')
     await flushPromises()
 
     expect(tasks.selectedId.value).toBeNull()
     expect(tasks.detail.value).toBeNull()
   })
 
+  it('drops a list response for a repo the user has already switched away from', async () => {
+    let resolveStale: (items: ReturnType<typeof task>[]) => void = () => {}
+    mocks.ListTasks.mockImplementationOnce(() => new Promise((resolve) => (resolveStale = resolve)))
+    const tasks = useTasks()
+    const seen: string[][] = []
+    watch(tasks.items, (items) => seen.push(items.map((item) => item.id)), { flush: 'sync' })
+
+    void tasks.reload()
+    mocks.ListTasks.mockResolvedValue([task('n1', { repoKey: 'acme/new' })])
+    tasks.setRepoKey('acme/new')
+    await nextTick()
+    resolveStale([task('o1')])
+    await flushPromises()
+
+    expect(seen).toEqual([['n1']])
+  })
+
   it('loads detail on select and clears the selection when it is not found', async () => {
     mocks.ReadTaskDetail.mockResolvedValueOnce(detail('t1'))
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
     tasks.select('t1')
     await flushPromises()
@@ -180,7 +192,7 @@ describe('useTasks', () => {
   })
 
   it('re-reads the list after setStatus and remove succeed', async () => {
-    const tasks = await loadComposable()
+    const tasks = useTasks()
     mocks.ListTasks.mockClear()
     mocks.ListTasks.mockResolvedValue([task('t1', { status: 'done' })])
     mocks.SetTaskStatus.mockResolvedValue(undefined)
@@ -207,7 +219,7 @@ describe('useTasks', () => {
   })
 
   it('runs a prune dry-run before the real prune, then re-reads', async () => {
-    const tasks = await loadComposable()
+    const tasks = useTasks()
     mocks.PruneTasks.mockResolvedValueOnce(7)
 
     const count = await tasks.pruneDryRun(30, 'acme/site')
@@ -226,14 +238,14 @@ describe('useTasks', () => {
 
   it('reloads repo keys on start and on manual refresh', async () => {
     mocks.TaskRepoKeys.mockResolvedValue(['acme/site'])
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
     tasks.startPolling()
     await flushPromises()
     expect(tasks.repoKeys.value).toEqual(['acme/site'])
 
     mocks.TaskRepoKeys.mockResolvedValue(['acme/site', 'acme/other'])
-    await tasks.refresh()
+    await tasks.reload()
     expect(tasks.repoKeys.value).toEqual(['acme/site', 'acme/other'])
 
     tasks.stopPolling()
@@ -242,7 +254,7 @@ describe('useTasks', () => {
   it('reloads on window focus only while polling is requested', async () => {
     vi.useFakeTimers()
     mocks.ListTasks.mockResolvedValue([task('t1')])
-    const tasks = await loadComposable()
+    const tasks = useTasks()
 
     tasks.startPolling()
     await vi.advanceTimersByTimeAsync(0)
