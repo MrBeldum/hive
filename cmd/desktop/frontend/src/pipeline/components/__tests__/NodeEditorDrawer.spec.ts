@@ -14,14 +14,19 @@ const StubEditor = defineComponent({
   props: { config: { type: Object, required: true }, errors: { type: Array, default: () => [] } },
   emits: ['update:config'],
   setup(props, { emit }) {
-    return () => h('div', { 'data-testid': 'stub-editor' }, [
-      h('span', { 'data-testid': 'stub-editor-value' }, String(props.config.label ?? '')),
-      h('button', {
-        type: 'button',
-        'data-testid': 'stub-editor-edit',
-        onClick: () => emit('update:config', { ...(props.config as Record<string, any>), label: 'edited' }),
-      }, 'edit'),
-    ])
+    return () =>
+      h('div', { 'data-testid': 'stub-editor' }, [
+        h('span', { 'data-testid': 'stub-editor-value' }, String(props.config.label ?? '')),
+        h(
+          'button',
+          {
+            type: 'button',
+            'data-testid': 'stub-editor-edit',
+            onClick: () => emit('update:config', { ...(props.config as Record<string, any>), label: 'edited' }),
+          },
+          'edit',
+        ),
+      ])
   },
 })
 
@@ -74,7 +79,7 @@ describe('NodeEditorDrawer', () => {
     const node: FlowNode = { id: 'n1', type: 'stub', config: { label: 'hello' } }
     const wrapper = mountDrawer(node)
 
-    expect(el('node-editor-title')?.textContent).toBe('Edit node · Stub node')
+    expect(el('node-editor-title')?.textContent?.trim()).toBe('Edit node · Stub node')
     // stubDef defaults role: 'processor', no outputs override -> 1 in / 1 out.
     expect(el('node-editor-subtitle')?.textContent).toBe('processor · 1 in → 1 out')
     expect(el('stub-editor-value')?.textContent).toBe('hello')
@@ -161,13 +166,17 @@ describe('NodeEditorDrawer', () => {
     el<HTMLButtonElement>('node-editor-save')!.click()
     await nextTick()
 
-    expect(wrapper.emitted('save')).toEqual([[{
-      id: 'n1',
-      type: 'stub',
-      name: 'My node',
-      disabled: true,
-      config: { label: 'edited' },
-    }]])
+    expect(wrapper.emitted('save')).toEqual([
+      [
+        {
+          id: 'n1',
+          type: 'stub',
+          name: 'My node',
+          disabled: true,
+          config: { label: 'edited' },
+        },
+      ],
+    ])
 
     wrapper.unmount()
   })
@@ -298,13 +307,17 @@ describe('NodeEditorDrawer', () => {
     el<HTMLButtonElement>('node-editor-save')!.click()
     await nextTick()
 
-    expect(wrapper.emitted('save')).toEqual([[{
-      id: 'a',
-      type: 'stub',
-      name: 'Renamed',
-      disabled: false,
-      config: { label: 'a-value' },
-    }]])
+    expect(wrapper.emitted('save')).toEqual([
+      [
+        {
+          id: 'a',
+          type: 'stub',
+          name: 'Renamed',
+          disabled: false,
+          config: { label: 'a-value' },
+        },
+      ],
+    ])
 
     wrapper.unmount()
   })
