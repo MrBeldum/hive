@@ -81,23 +81,21 @@ func dropAgentLabel(doc map[string]any) error {
 	return nil
 }
 
-// dropExperimentalSection deletes the `experimental` key.
-//
-// The settings decoder is strict, so a file carrying the section a user opted
-// into — the only files that carry it, since it marshals with omitempty —
-// would fail startup outright once the struct is gone.
+// dropExperimentalSection deletes the `experimental` key, which only a file
+// whose user opted in carries. Without it, that file warns about an unknown
+// key on every launch until a settings save drops it.
 func dropExperimentalSection(doc map[string]any) error {
 	delete(doc, "experimental")
 	return nil
 }
 
-// renameHTTPAPISkill rewrites the retired hive-http-api skill slug to hive-mcp.
+// renameHTTPAPISkill rewrites the retired hive-http-api skill slug to hive-mcp
+// (ADR mcp-replaces-the-agent-facing-http-api).
 //
-// The prompt behind it became the MCP prompt when the agent-facing HTTP API was
-// deleted (ADR mcp-replaces-the-agent-facing-http-api), and a workspace's skills: list carries the installed slug.
-// Without this, opening a workspace that declared the old one fails outright —
-// resolveSkills refuses a slug no prompt id backs, so one stale entry takes the
-// whole workspace down rather than degrading.
+// Version 3 collapses a skills: list that is exactly the shipped set, which
+// names hive-mcp, onto the hive package. Without the rename, a workspace that
+// still lists hive-http-api misses that collapse and loses every hive skill,
+// not only the renamed one.
 func renameHTTPAPISkill(doc map[string]any) error {
 	const (
 		old = "hive-http-api"
@@ -134,8 +132,8 @@ func renameHTTPAPISkill(doc map[string]any) error {
 //
 // It configured the global skill installer — per-agent install directories
 // and an auto-update toggle -- which no longer exists (ADR skills-are-declared-by-a-workspace).
-// The settings decoder is strict, so every user who ever opened Settings ▸
-// Skills would fail startup outright once the struct is gone.
+// Without this, every user who ever opened Settings ▸ Skills warns about an
+// unknown key on every launch until a settings save drops it.
 func dropSkillsSection(doc map[string]any) error {
 	delete(doc, "skills")
 	return nil
@@ -170,7 +168,7 @@ func dropDevelopmentInstance(doc map[string]any) error {
 }
 
 // The name table is frozen here on purpose. A value that is neither a name nor
-// a number is dropped; the strict decoder would otherwise refuse to start.
+// a number is dropped; the decoder would otherwise refuse to start.
 func terminalFontSizeToPixels(doc map[string]any) error {
 	appearance, ok := doc["appearance"].(map[string]any)
 	if !ok {
