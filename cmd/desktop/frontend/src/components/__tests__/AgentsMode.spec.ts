@@ -46,6 +46,8 @@ const xterm = vi.hoisted(() => {
     dataHandler: ((data: string) => void) | null = null
     scrollHandler: (() => void) | null = null
     bufferChangeHandler: (() => void) | null = null
+    keyHandler: ((event: KeyboardEvent) => boolean) | null = null
+    input = vi.fn((data: string) => this.dataHandler?.(data))
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
@@ -60,6 +62,14 @@ const xterm = vi.hoisted(() => {
     onScroll(handler: () => void) {
       this.scrollHandler = handler
       return { dispose: vi.fn() }
+    }
+
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.keyHandler = handler
+    }
+
+    press(event: Partial<KeyboardEvent>): boolean {
+      return this.keyHandler?.({ type: 'keydown', preventDefault: () => {}, ...event } as KeyboardEvent) ?? true
     }
   }
 
@@ -656,6 +666,15 @@ describe('AgentsMode', () => {
     typeInPane('x')
 
     expect(socket.sent.map((frame) => Array.from(frame))).toEqual([[0x10, 2, 0x25, 0x31, 0x78]])
+  })
+
+  it('forwards Shift+Enter to the pane as a CSI u modified-enter', async () => {
+    const { client } = await mountWithOpenChat()
+    const socket = openedSocket(client)
+
+    expect(xterm.FakeTerminal.instances.at(-1)!.press({ key: 'Enter', shiftKey: true })).toBe(false)
+
+    expect(socket.sent.map((frame) => Array.from(frame))).toEqual([inputFrame('%1', '\x1b[13;2u')])
   })
 
   // Stream window events override a stale active pane from the launch response.
