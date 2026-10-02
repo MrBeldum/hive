@@ -115,7 +115,7 @@ function requestDelete() {
 
 function cancelDelete() {
   deleteConfirming.value = false
-  nextTick(() => deleteTriggerRef.value?.focus())
+  void nextTick(() => deleteTriggerRef.value?.focus())
 }
 
 function confirmDelete() {
@@ -124,7 +124,7 @@ function confirmDelete() {
 }
 
 watch(deleteConfirming, (confirming) => {
-  if (confirming) nextTick(() => deleteCancelRef.value?.focus())
+  if (confirming) void nextTick(() => deleteCancelRef.value?.focus())
 })
 
 // ── Docs ─────────────────────────────────────────────────────────────────────
@@ -231,12 +231,14 @@ useAutofocus(nameRef)
             helpSummary
           }}</span>
         </button>
+        <!-- eslint-disable vue/no-v-html -- renderMarkdown escapes the first-party node docs -->
         <div
           v-if="docsOpen"
           class="hive-doc mt-3 text-[13px] leading-relaxed text-text-2"
           data-testid="node-editor-docs"
           v-html="docsHtml"
         />
+        <!-- eslint-enable vue/no-v-html -->
       </div>
     </template>
 
