@@ -19,6 +19,8 @@ import IconRefresh from '~icons/lucide/refresh-cw'
 import { randomPath, randomSecret } from './config'
 import type { Config } from './config'
 import { renderPrompt } from '../../../composables/usePrompts'
+import EmptyState from '../../../components/ui/EmptyState.vue'
+import CopyButton from '../../../components/ui/CopyButton.vue'
 
 export interface WebhookInfoView {
   running: boolean
@@ -129,7 +131,6 @@ const capturePreview = computed(() => {
   }
 })
 
-const { copy: copyUrl, copied: urlCopied } = useClipboard()
 const { copy: copyPrompt, setStatus: setPromptStatus, copied: promptCopied } = useClipboard({ resetDelay: 2500 })
 
 // The transform prompt is rendered by the Go prompts service like every other
@@ -221,15 +222,7 @@ async function onCopyPrompt(): Promise<void> {
           data-testid="sources.webhook-editor-url"
           >{{ endpointUrl }}</code
         >
-        <BaseButton
-          variant="secondary"
-          size="sm"
-          class="whitespace-nowrap"
-          data-testid="sources.webhook-editor-copy-url"
-          @click="copyUrl(endpointUrl)"
-        >
-          {{ urlCopied ? 'Copied' : 'Copy' }}
-        </BaseButton>
+        <CopyButton :text="endpointUrl" data-testid="sources.webhook-editor-copy-url" />
       </div>
       <p v-if="info && !info.running" class="mt-1.5 text-[11.5px] text-text-4">
         The listener is not running in this session; the URL applies to a live desktop run.
@@ -258,9 +251,12 @@ async function onCopyPrompt(): Promise<void> {
           data-testid="sources.webhook-editor-capture"
           >{{ capturePreview }}</pre>
       </template>
-      <p v-else class="text-[12px] text-text-4" data-testid="sources.webhook-editor-no-capture">
-        Nothing captured yet — POST JSON to the endpoint and reopen this editor to see the payload here.
-      </p>
+      <EmptyState
+        v-else
+        variant="inline"
+        message="Nothing captured yet — POST JSON to the endpoint and reopen this editor to see the payload here."
+        data-testid="sources.webhook-editor-no-capture"
+      />
     </div>
 
     <div class="flex items-center gap-2.5">

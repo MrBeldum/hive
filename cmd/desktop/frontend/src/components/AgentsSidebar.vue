@@ -50,6 +50,8 @@ import { useTerminalPinnedChats } from '../stores/useTerminalPinnedChats'
 import { relativeAge } from '../lib/age'
 import type { AgentSession, AgentWorkspace } from '../lib/agentWorkspacesClient'
 import type { MenuEntry } from '../types/menu'
+import Spinner from './ui/Spinner.vue'
+import EmptyState from './ui/EmptyState.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -640,7 +642,7 @@ defineExpose({
         :aria-busy="startingSession"
         @click="emit('request-new-session')"
       >
-        <IconLoaderCircle v-if="startingSession" class="size-3.5 animate-spin" />
+        <Spinner v-if="startingSession" />
         <IconPlus v-else class="size-3.5" />
       </button>
       <!-- List-wide operations; a workspace's own live on its row. -->
@@ -695,13 +697,13 @@ defineExpose({
       >
         Loading…
       </p>
-      <p
+      <EmptyState
         v-else-if="!filteredTree.length"
-        class="px-3 py-2 text-xs text-text-3"
+        variant="inline"
+        class="px-3 py-2"
+        :message="emptyNote"
         data-testid="agents-sidebar-workspaces-empty"
-      >
-        {{ emptyNote }}
-      </p>
+      />
       <template v-else>
         <!-- The chat read can fail on its own, which leaves every workspace row
              correct and every count wrong; say so rather than draw an empty

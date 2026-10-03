@@ -21,6 +21,8 @@ import { useAutofocus } from '../composables/useAutofocus'
 import { formatCombo } from '../composables/useKeybindings'
 import { useSubmitShortcut } from '../composables/useSubmitShortcut'
 import { seedRef } from '../lib/seedRef'
+import Kbd from './ui/Kbd.vue'
+import SegmentedControl, { type SegmentedControlOption } from './ui/SegmentedControl.vue'
 
 const props = defineProps<{
   options: SessionLaunchOptions
@@ -41,10 +43,11 @@ const emit = defineEmits<{
 // which is also what makes Enter in a single-line field submit.
 const formId = useId()
 const submitHint = formatCombo('mod+enter')
-const targetOptions = [
-  { value: 'repository' as const, label: 'Code', icon: IconCode },
-  { value: 'workspace' as const, label: 'Chats', icon: IconMessagesSquare },
+const targetOptions: SegmentedControlOption<'repository' | 'workspace'>[] = [
+  { value: 'repository', label: 'Code' },
+  { value: 'workspace', label: 'Chats' },
 ]
+const targetIcons = { repository: IconCode, workspace: IconMessagesSquare }
 const target = seedRef<'repository' | 'workspace'>(
   () => props.initialTarget ?? (props.initial.workspace ? 'workspace' : 'repository'),
 )
@@ -134,25 +137,19 @@ useSubmitShortcut(submit)
     @close="emit('close')"
   >
     <template #header-actions>
-      <div
-        class="grid grid-cols-2 gap-0.5 rounded-md border border-card bg-app p-0.5"
-        role="group"
+      <SegmentedControl
+        v-model="target"
+        variant="compact"
+        size="sm"
+        :columns="2"
+        :options="targetOptions"
         aria-label="Session target"
-        data-testid="new-session-target"
+        testid="new-session-target"
       >
-        <button
-          v-for="option in targetOptions"
-          :key="option.value"
-          type="button"
-          class="flex items-center gap-1 rounded px-2 py-1 text-[10.5px] font-medium leading-none transition-colors"
-          :class="target === option.value ? 'bg-raised text-text shadow-sm' : 'text-text-3 hover:text-text'"
-          :aria-pressed="target === option.value"
-          :data-testid="`new-session-target-${option.value}`"
-          @click="target = option.value as 'repository' | 'workspace'"
-        >
-          <component :is="option.icon" class="size-3" />{{ option.label }}
-        </button>
-      </div>
+        <template #option="{ option }">
+          <component :is="targetIcons[option.value]" class="size-3" />{{ option.label }}
+        </template>
+      </SegmentedControl>
     </template>
     <section
       v-if="failure"
@@ -271,11 +268,9 @@ useSubmitShortcut(submit)
         data-testid="new-session-submit"
       >
         {{ busy ? 'Creating…' : failure ? 'Try again' : target === 'workspace' ? 'Start chat' : 'Create session' }}
-        <kbd v-if="!busy" class="rounded bg-black/15 px-1 py-0.5 font-mono text-[10.5px] leading-none">{{
-          submitHint
-        }}</kbd>
+        <Kbd v-if="!busy" variant="on-accent">{{ submitHint }}</Kbd>
       </BaseButton>
-      <BaseButton variant="secondary" :busy="busy" @click="emit('close')">Cancel</BaseButton>
+      <BaseButton variant="secondary" :disabled="busy" @click="emit('close')">Cancel</BaseButton>
     </template>
   </BaseModal>
 </template>

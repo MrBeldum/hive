@@ -96,6 +96,8 @@ import type {
   SessionWindowStatus,
 } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
+import Kbd from './ui/Kbd.vue'
+import EmptyState from './ui/EmptyState.vue'
 import '@xterm/xterm/css/xterm.css'
 
 // `active` is whether this mode is the surface on screen. The component is
@@ -2608,28 +2610,32 @@ onBeforeUnmount(() => {
           </div>
           <!-- Under the tree rather than instead of it: the pinned section is
                drawn whether or not hive has a session to list. -->
-          <p v-if="treeNote === 'empty'" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
-            No active sessions. Start one from the hub and it will appear here.
-          </p>
-          <p
+          <EmptyState
+            v-if="treeNote === 'empty'"
+            variant="inline"
+            class="px-3 py-2"
+            message="No active sessions. Start one from the hub and it will appear here."
+            data-testid="terminal-sessions-empty"
+          />
+          <EmptyState
             v-else-if="treeNote === 'no-matches'"
-            class="px-3 py-2 text-xs text-text-3"
+            variant="inline"
+            class="px-3 py-2"
+            :message="noMatchesNote"
             data-testid="terminal-sessions-no-matches"
-          >
-            {{ noMatchesNote }}
-          </p>
+          />
         </div>
         <!-- The tree's keys are not otherwise announced anywhere, so the panel
              carries its own legend. The focus chord is read off the live keymap
              because it is rebindable; the arrows are the tree's own handler and
              cannot move. -->
         <div v-if="attachable.length" class="tree-hints" data-testid="terminal-tree-hints">
-          <span><span class="tree-hint-key">↑↓</span> switch</span>
-          <span><span class="tree-hint-key">↵</span> enter</span>
+          <span><Kbd class="text-text-3">↑↓</Kbd> switch</span>
+          <span><Kbd class="text-text-3">↵</Kbd> enter</span>
           <!-- Whichever half of the focus pair leaves where focus is. The pane
                has nowhere to advertise its own way out, so the tree carries it. -->
           <span v-if="focusHint"
-            ><span class="tree-hint-key">{{ focusHint.keys }}</span> {{ focusHint.label }}</span
+            ><Kbd class="text-text-3">{{ focusHint.keys }}</Kbd> {{ focusHint.label }}</span
           >
         </div>
         <PanelResizeHandle edge="right" name="terminal-sidebar" :start="startResize" :step="step" />
@@ -2979,9 +2985,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--color-text-4);
   user-select: none;
-}
-.tree-hint-key {
-  color: var(--color-text-3);
 }
 
 .session-row {
