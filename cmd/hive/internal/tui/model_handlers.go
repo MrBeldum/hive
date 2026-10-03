@@ -1097,13 +1097,14 @@ func (m Model) createSourceSession(ctx context.Context, result sourcepicker.Resu
 	}
 
 	exec := m.cmdService.NewCreateExecutor(hive.CreateOptions{
-		Name:          rendered.Name,
-		Prompt:        rendered.Prompt,
-		Remote:        scope.Remote,
-		Source:        scope.Source,
-		UseBatchSpawn: true,
-		Background:    true,
-		Tags:          rendered.Tags,
+		Name:            rendered.Name,
+		Prompt:          rendered.Prompt,
+		Remote:          scope.Remote,
+		Source:          scope.Source,
+		UseBatchSpawn:   true,
+		Background:      true,
+		CollisionSuffix: session.Slugify(result.Item.ID),
+		Tags:            rendered.Tags,
 	})
 
 	output, done, cancel := exec.Execute(ctx)

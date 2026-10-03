@@ -51,11 +51,6 @@ func ClassifyAgentScreen(agent, screen string) AgentActivityStatus {
 	}
 }
 
-// ErrDuplicateSessionName is the seam-local translation of Hive's
-// session.ErrDuplicateName, so a core service can classify a name collision
-// without importing the shared session package.
-var ErrDuplicateSessionName = errors.New("session name already exists")
-
 type SessionCreator interface {
 	CreateSession(context.Context, hive.CreateOptions) (*session.Session, error)
 }
@@ -319,10 +314,10 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// failed but not the step, so without this a clone failure arrives as
 	// "clone repository: git clone: exec git: exit status 1" and nothing else.
 	progress := &sessionProgress{}
-	s, err := sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags, Progress: progress})
+	s, err := sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, CollisionSuffix: req.CollisionSuffix, Tags: tags, Progress: progress})
 	if err != nil {
 		if errors.Is(err, session.ErrDuplicateName) {
-			return SessionExecutionOutcome{}, fmt.Errorf("%w: %w", ErrDuplicateSessionName, err)
+			return SessionExecutionOutcome{}, err
 		}
 		failure := &SessionCreateError{
 			Name:   req.Name,
@@ -799,22 +794,6 @@ func sessionSummaryOf(s session.Session) SessionSummary {
 		State:       string(s.State),
 		TmuxSession: hive.SessionTarget(s).Session,
 	}
-}
-
-// SlugifySessionName converts a display name to the slug Hive uses for
-// tmux session names and directory paths. It wraps the shared
-// session.Slugify so that launch_session_executor.go — not itself an ACL
-// seam — never imports internal/core/session directly; a rename there
-// breaks this one file instead of spreading to a non-seam caller.
-func SlugifySessionName(name string) string {
-	return session.Slugify(name)
-}
-
-// ValidateSessionName validates name against Hive's session naming rules.
-// See SlugifySessionName for why this wraps session.ValidateName
-// instead of letting callers import internal/core/session directly.
-func ValidateSessionName(name string) error {
-	return session.ValidateName(name)
 }
 
 type DurableMessageService interface {

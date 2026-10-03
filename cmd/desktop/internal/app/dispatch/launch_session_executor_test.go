@@ -174,6 +174,22 @@ func TestLaunchSessionExecutor_NoRepoTemplate_LeavesRepoEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
 	assert.Equal(t, "git@example/repo", launcher.calls[0].Repo)
+	assert.Empty(t, launcher.calls[0].CollisionSuffix, "a typed name keeps the duplicate error")
+}
+
+func TestLaunchSessionExecutor_GeneratedName(t *testing.T) {
+	launcher := &fakeSessionLauncher{}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{})
+	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &LaunchNodeActionConfig{
+		PromptTemplate: "hi", RepoTemplate: "example/repo", NameTemplate: "{{ .Payload.title }}",
+	}}
+	data := OutputData{Key: "item-1", Payload: map[string]any{"title": "修正 🚀"}, Raw: json.RawMessage(`{}`), CommandID: 42}
+
+	_, err := exec.Execute(t.Context(), action, data, ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Equal(t, "spawn-review-item-1", launcher.calls[0].Name, "a title with no letters or digits falls back to the derived name")
+	assert.Equal(t, "42", launcher.calls[0].CollisionSuffix, "every retry of the command claims the same name")
 }
 
 func TestLaunchSessionExecutor_LaunchesConfiguredWorkspace(t *testing.T) {
@@ -259,13 +275,13 @@ func TestHiveSessionLauncher_MapsRequestToSessionService(t *testing.T) {
 	launcher := NewHiveSessionLauncher(creator)
 
 	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{
-		Name: "review-pr-1", Prompt: "Review this", Agent: "claude", Repo: "https://example.test/repo.git",
+		Name: "review-pr-1", Prompt: "Review this", Agent: "claude", Repo: "https://example.test/repo.git", CollisionSuffix: "7",
 	})
 	require.NoError(t, err)
 	require.Len(t, creator.calls, 1)
 	require.NotNil(t, creator.calls[0].Progress, "every attempt gets its own progress writer, so a failure can name the step it died on")
 	require.Equal(t, hive.CreateOptions{
-		Name: "review-pr-1", Prompt: "Review this", AgentKey: "claude", Remote: "https://example.test/repo.git", Background: true,
+		Name: "review-pr-1", Prompt: "Review this", AgentKey: "claude", Remote: "https://example.test/repo.git", Background: true, CollisionSuffix: "7",
 	}, withoutProgress(creator.calls[0]))
 }
 

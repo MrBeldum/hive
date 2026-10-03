@@ -116,6 +116,11 @@ linters:
             - "!**/cmd/desktop/internal/app/data/queries/dbext.go"
             - "!**/cmd/desktop/internal/app/data/queries/dbext_test.go"
             - "!**/cmd/desktop/internal/app/hiveconf/hiveconf_test.go"
+          # Longer lax-mode allow matches override the internal/core deny.
+          list-mode: lax
+          allow:
+            - github.com/colonyops/hive/internal/core/session
+            - github.com/colonyops/hive/internal/core/validate
           deny:
             - pkg: github.com/colonyops/hive/internal/core
               desc: &seam |

@@ -66,6 +66,9 @@ type CreateOptions struct {
 	AgentKey string
 	// Tags are user-defined labels attached to the session for external provider tracking.
 	Tags []string
+	// CollisionSuffix is appended to a Name whose slug is taken. Use an id that
+	// is stable across retries, so a retry collides with its own earlier session.
+	CollisionSuffix string
 	// Progress receives human-readable progress lines during session creation.
 	// When non-nil, service output (hooks, file copies) is also redirected here.
 	Progress io.Writer
@@ -228,21 +231,15 @@ func (s *SessionService) CreateSession(ctx context.Context, opts CreateOptions) 
 	if err := session.ValidateName(opts.Name); err != nil {
 		return nil, err
 	}
+	name, err := s.claimName(ctx, opts.Name, "", opts.CollisionSuffix)
+	if err != nil {
+		return nil, err
+	}
+	opts.Name = name
 
 	var sess session.Session
 	var dirID string
 	slug := session.Slugify(opts.Name)
-
-	// Check for duplicate active session name
-	existing, err := s.sessions.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list sessions: %w", err)
-	}
-	for _, e := range existing {
-		if e.State == session.StateActive && e.Name == opts.Name {
-			return nil, fmt.Errorf("%w: %q", session.ErrDuplicateName, opts.Name)
-		}
-	}
 
 	// Full clones retain their checkout when recycled and can be reused. Worktree
 	// recycling deletes the checkout and session record because the shared bare
@@ -395,6 +392,33 @@ func (s *SessionService) CreateSession(ctx context.Context, opts CreateOptions) 
 	return &sess, nil
 }
 
+func (s *SessionService) claimName(ctx context.Context, name, exceptID, collisionSuffix string) (string, error) {
+	sessions, err := s.sessions.List(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list sessions: %w", err)
+	}
+	taken := make(map[string]string, 2*len(sessions))
+	for _, e := range sessions {
+		if e.State != session.StateActive || e.ID == exceptID {
+			continue
+		}
+		taken[e.Slug] = e.Name
+		taken[SessionTarget(e).Session] = e.Name
+	}
+	holder, clash := taken[session.Slugify(name)]
+	if !clash {
+		return name, nil
+	}
+	if collisionSuffix == "" {
+		return "", fmt.Errorf("%w: %q matches active session %q", session.ErrDuplicateName, name, holder)
+	}
+	suffixed := session.NameWithSuffix(name, collisionSuffix)
+	if holder, clash := taken[session.Slugify(suffixed)]; clash {
+		return "", fmt.Errorf("%w: %q and %q match active session %q", session.ErrDuplicateName, name, suffixed, holder)
+	}
+	return suffixed, nil
+}
+
 // worktreeBranchName returns the branch name for a worktree session, applying
 // the configured branch template for the remote when one is set.
 func (s *SessionService) worktreeBranchName(remote, name, slug, dirID string) (string, error) {
@@ -510,12 +534,14 @@ func (s *SessionService) RenameSession(ctx context.Context, id, newName string) 
 		return fmt.Errorf("rename session: %w", err)
 	}
 
-	slug := session.Slugify(newName)
-
 	sess, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
 	}
+	if _, err := s.claimName(ctx, newName, id, ""); err != nil {
+		return fmt.Errorf("rename session: %w", err)
+	}
+	slug := session.Slugify(newName)
 
 	oldName := sess.Name
 	oldTarget := SessionTarget(sess)

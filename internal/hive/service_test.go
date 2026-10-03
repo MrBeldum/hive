@@ -1022,12 +1022,11 @@ func TestCreateSession_DuplicateNameRejected(t *testing.T) {
 		Remote: testRemote,
 	}))
 
-	// Attempt to create another session with the same name.
 	_, err := svc.CreateSession(context.Background(), CreateOptions{
-		Name:   "my-feature",
+		Name:   "My Feature",
 		Remote: testRemote,
 	})
-	require.ErrorIs(t, err, session.ErrDuplicateName)
+	require.ErrorIs(t, err, session.ErrDuplicateName, "names with the same slug collide")
 
 	// Recycled sessions with the same name should not block creation.
 	require.NoError(t, store.Save(context.Background(), session.Session{
@@ -1044,6 +1043,44 @@ func TestCreateSession_DuplicateNameRejected(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "recycled-feature", sess.Name)
+}
+
+func TestCreateSession_CollisionSuffixOnTakenName(t *testing.T) {
+	store := newMockStore()
+	svc := newTestService(t, store, &config.Config{DataDir: t.TempDir(), GitPath: "git"})
+	require.NoError(t, store.Save(context.Background(), session.Session{ID: "a", Name: "review-repo", Slug: "review-repo", State: session.StateActive, Remote: testRemote}))
+
+	sess, err := svc.CreateSession(context.Background(), CreateOptions{Name: "review-repo", Remote: testRemote, CollisionSuffix: "7"})
+	require.NoError(t, err)
+	assert.Equal(t, "review-repo-7", sess.Name)
+	assert.Equal(t, "review-repo-7", sess.Slug)
+}
+
+func TestCreateSession_RetryCollidesWithItsSavedAttempt(t *testing.T) {
+	store := newMockStore()
+	svc := newTestService(t, store, &config.Config{DataDir: t.TempDir(), GitPath: "git"})
+	require.NoError(t, store.Save(context.Background(), session.Session{ID: "a", Name: "review-repo", Slug: "review-repo", State: session.StateActive, Remote: testRemote}))
+	earlier := session.Session{ID: "b", Name: "other", Slug: "other", State: session.StateActive, Remote: testRemote}
+	earlier.SetMeta(session.MetaTmuxSession, "review-repo-7")
+	require.NoError(t, store.Save(context.Background(), earlier))
+
+	_, err := svc.CreateSession(context.Background(), CreateOptions{Name: "review-repo", Remote: testRemote, CollisionSuffix: "7"})
+	require.ErrorIs(t, err, session.ErrDuplicateName)
+	all, err := store.List(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+}
+
+func TestRenameSession_RejectsAnotherSessionsSlug(t *testing.T) {
+	store := newMockStore()
+	svc := newTestService(t, store, nil)
+	require.NoError(t, store.Save(context.Background(), session.Session{ID: "a", Name: "Fix Bug", Slug: "fix-bug", State: session.StateActive}))
+	require.NoError(t, store.Save(context.Background(), session.Session{ID: "b", Name: "other", Slug: "other", State: session.StateActive}))
+
+	err := svc.RenameSession(context.Background(), "b", "fix bug")
+	require.ErrorIs(t, err, session.ErrDuplicateName)
+
+	require.NoError(t, svc.RenameSession(context.Background(), "a", "fix-bug"), "a session may rename onto its own slug")
 }
 
 func TestCreateSessionWithWindows_RollbackOnRunShFailure(t *testing.T) {

@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/colonyops/hive/internal/core/session"
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/rs/zerolog"
@@ -24,10 +27,11 @@ const defaultPostHookTimeout = time.Minute
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
 // a SessionLauncher.
 type LaunchSessionRequest struct {
-	Name   string
-	Prompt string
-	Agent  string
-	Repo   string
+	Name            string
+	Prompt          string
+	Agent           string
+	Repo            string
+	CollisionSuffix string
 	// Origins are the inbox items the session is being created for. An empty
 	// slice means the session has no inbox item behind it.
 	Origins []models.ItemRef
@@ -97,6 +101,10 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 	}
 	workspace := strings.TrimSpace(cfg.Workspace)
 	agent := cfg.Agent
+	var collisionSuffix string
+	if data.CommandID != 0 {
+		collisionSuffix = strconv.FormatInt(data.CommandID, 10)
+	}
 	if strings.TrimSpace(cfg.RepoTemplate) == "" && workspace == "" {
 		if input.Session == nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: target and session name input are required")
@@ -104,13 +112,14 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		repo = strings.TrimSpace(input.Session.Repository)
 		workspace = strings.TrimSpace(input.Session.Workspace)
 		name = strings.TrimSpace(input.Session.Name)
+		collisionSuffix = ""
 		if (repo == "") == (workspace == "") {
 			return ExecutionResult{}, fmt.Errorf("launch-session: exactly one of repository or workspace is required")
 		}
 		if name == "" {
 			return ExecutionResult{}, fmt.Errorf("launch-session: session name is required")
 		}
-		if err := ValidateSessionName(name); err != nil {
+		if err := session.ValidateName(name); err != nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: session name: %w", err)
 		}
 		if repo != "" && input.Session.Agent != "" {
@@ -126,8 +135,8 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: repository and workspace targets are mutually exclusive")
 	}
 	if data.IsRerun {
-		name = fmt.Sprintf("%s-rerun-%d", name, data.CommandID)
-		if err := ValidateSessionName(name); err != nil {
+		name = session.NameWithSuffix(name, fmt.Sprintf("rerun-%d", data.CommandID))
+		if err := session.ValidateName(name); err != nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
@@ -140,7 +149,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 	if workspace != "" {
 		outcome, err = e.launchWorkspace(ctx, LaunchWorkspaceSessionRequest{Workspace: workspace, Name: name, Prompt: prompt, Origins: origins})
 	} else {
-		outcome, err = e.launchRepository(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origins: origins})
+		outcome, err = e.launchRepository(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, CollisionSuffix: collisionSuffix, Origins: origins})
 	}
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
@@ -153,23 +162,17 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 }
 
 func sessionName(actionID, nameTemplate string, data OutputData) (string, error) {
-	if strings.TrimSpace(nameTemplate) == "" {
-		name := SlugifySessionName(actionID + "-" + data.Key)
-		if err := ValidateSessionName(name); err != nil {
-			return "", fmt.Errorf("launch-session: derived session name: %w", err)
+	var rendered string
+	if strings.TrimSpace(nameTemplate) != "" {
+		var err error
+		rendered, err = tmpl.New(tmpl.Config{}).Render(nameTemplate, data)
+		if err != nil {
+			return "", fmt.Errorf("launch-session: session name: %w", err)
 		}
-		return name, nil
 	}
-	rendered, err := tmpl.New(tmpl.Config{}).Render(nameTemplate, data)
-	if err != nil {
-		return "", fmt.Errorf("launch-session: session name: %w", err)
-	}
-	name := SlugifySessionName(rendered)
+	name := session.ToSessionName(rendered, actionID+"-"+data.Key)
 	if name == "" {
-		return "", fmt.Errorf("launch-session: session name rendered blank")
-	}
-	if err := ValidateSessionName(name); err != nil {
-		return "", fmt.Errorf("launch-session: session name: %w", err)
+		return "", fmt.Errorf("launch-session: session name: neither the template nor the action id and item key have letters or digits")
 	}
 	return name, nil
 }
