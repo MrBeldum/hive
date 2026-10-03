@@ -63,11 +63,13 @@ type processor interface {
 // deriving them from the connector registry is what keeps adding a connector
 // a change to cmd/desktop/internal/app/sources alone.
 var behaviors = buildBehaviors(map[string]behavior{
-	"github-filter": {processor: newFilterNode},
-	"function":      {processor: newFunctionNode, kvCapable: true},
-	"feed":          {sinks: feedSinks, snapshotReconciled: true},
-	"action":        {sinks: actionSinks},
-	"notify":        {sinks: notifySinks},
+	"github-filter":  {processor: newFilterNode},
+	"function":       {processor: newFunctionNode, kvCapable: true},
+	"feed":           {sinks: feedSinks, snapshotReconciled: true},
+	"action":         {sinks: actionSinks},
+	"notify":         {sinks: notifySinks},
+	"launch-session": {sinks: launchSinks},
+	"launch-chat":    {sinks: launchSinks},
 })
 
 // buildBehaviors merges the behaviours declared here with the relay behaviour
@@ -138,5 +140,16 @@ func notifySinks(flowID, nodeID string, _ flow.NodeConfig, msg models.Msg) []mod
 		SourceTopic:   msg.Topic,
 		SourceKind:    msg.SourceKind,
 		SourceScope:   msg.SourceScope,
+	}}
+}
+
+func launchSinks(flowID, nodeID string, _ flow.NodeConfig, msg models.Msg) []models.Output {
+	return []models.Output{{
+		Sink:        models.Sink{Kind: models.SinkKindLaunch, TargetID: flowID + "/" + nodeID},
+		Key:         msg.Key,
+		Payload:     msg.Payload,
+		SourceTopic: msg.Topic,
+		SourceKind:  msg.SourceKind,
+		SourceScope: msg.SourceScope,
 	}}
 }

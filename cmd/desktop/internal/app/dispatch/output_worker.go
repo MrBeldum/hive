@@ -57,6 +57,15 @@ type OutputData struct {
 	// payload, and zero when the command has no inbox item behind it.
 	Origin models.ItemRef
 }
+
+// ItemRemote is the item's repository clone URL, drafted the way the New
+// Session form does, or "" when the item names no repository.
+func (d OutputData) ItemRemote() string {
+	repo, _ := d.Payload["repo"].(string)
+	itemURL, _ := d.Payload["url"].(string)
+	return draftRepository(repo, itemURL)
+}
+
 type Executor interface {
 	Execute(context.Context, actions.Action, OutputData, ActionInvocationInput) (ExecutionResult, error)
 }
@@ -428,7 +437,7 @@ func (w *Worker) fail(
 			return
 		}
 		w.jobFail(ctx, jobID, execErr.Error())
-		logger.Debug().Err(execErr).Msg("output worker: job failed")
+		logger.Warn().Err(execErr).Int64("command_id", row.ID).Str("key", row.Key).Int64("attempts", row.Attempts+1).Msg("output worker: command failed permanently")
 		// Only the terminal failure reaches the Activity view; retries stay in
 		// the logs so a flaky action doesn't spam the feed.
 		label := row.ActionID

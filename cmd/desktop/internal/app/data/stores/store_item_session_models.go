@@ -23,3 +23,15 @@ func mapItemSessionFromDB(row queries.ItemSession) ItemSession {
 		CreatedAt:   row.CreatedAt,
 	}
 }
+
+// ItemChat is an agent workspace chat opened for an inbox item.
+type ItemChat struct {
+	ChatID    int64  `json:"chatId"`
+	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+func mapItemChatFromDB(row queries.ListItemChatsRow) ItemChat {
+	return ItemChat{ChatID: row.ChatID, Workspace: row.Workspace, Name: row.Name, CreatedAt: row.CreatedAt}
+}

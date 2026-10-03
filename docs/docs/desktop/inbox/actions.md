@@ -7,7 +7,7 @@ description: Configure reusable actions and quick terminal launchers.
 
 Actions are reusable operations defined in `actions.yml`. Configure them under **Settings ▸ Actions** or edit the file directly.
 
-Actions can appear on feed items, terminal sessions, terminal windows, or in a flow.
+Actions can appear on feed items, terminal sessions, terminal windows, or in a flow. A flow that only needs to start a session or chat can use a [launch node](flows.md#start-work-from-a-flow) instead.
 
 ## Action types
 
@@ -58,7 +58,7 @@ syntax. `repo_template` and `workspace` cannot appear together.
 
 Template fields depend on where the action runs:
 
-- Item actions use `{{ .Payload.<field> }}` and `{{ .Key }}`.
+- Item actions use `{{ .Payload.<field> }}` and `{{ .Key }}`. `{{ .ItemRemote }}` is the clone URL of the item's repository, for `repo_template`.
 - Session actions use values such as `{{ .Session.Path }}` and `{{ .Session.Branch }}`.
 - Window actions can also use `{{ .Window.ID }}`.
 - Declared inputs use `{{ .Inputs.<name> }}`.

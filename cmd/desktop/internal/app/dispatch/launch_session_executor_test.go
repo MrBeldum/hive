@@ -101,6 +101,40 @@ func TestLaunchSessionExecutor_RendersPromptAndRepoTemplates(t *testing.T) {
 	assert.Equal(t, "colonyops/hive", got.Repo)
 }
 
+func TestLaunchSessionExecutor_ItemRemoteRendersTheItemsCloneURL(t *testing.T) {
+	action := actions.Action{
+		ID: "spawn-review", Type: "launch-session",
+		Config: &actions.LaunchSessionConfig{PromptTemplate: "hi", RepoTemplate: "{{ .ItemRemote }}"},
+	}
+
+	t.Run("an item that names its repository", func(t *testing.T) {
+		launcher := &fakeSessionLauncher{}
+		raw := `{"repo":"colonyops/hive","url":"https://github.com/colonyops/hive/pull/7"}`
+		_, err := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{}).
+			Execute(t.Context(), action, OutputData{Key: "pr-7", Raw: json.RawMessage(raw)}, ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, launcher.calls, 1)
+		assert.Equal(t, "https://github.com/colonyops/hive.git", launcher.calls[0].Repo)
+	})
+
+	t.Run("an item without one fails naming the cause", func(t *testing.T) {
+		launcher := &fakeSessionLauncher{}
+		_, err := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{}).
+			Execute(t.Context(), action, OutputData{Key: "alert-1", Raw: json.RawMessage(`{"title":"down"}`)}, ActionInvocationInput{})
+		require.EqualError(t, err, "launch-session: repo_template rendered blank: the item names no repository")
+		assert.Empty(t, launcher.calls)
+	})
+
+	t.Run("a flow node's failure names the node's own field", func(t *testing.T) {
+		node := actions.Action{ID: "launch:triage/review", Type: "launch-session", Config: &LaunchNodeActionConfig{
+			PromptTemplate: "hi", RepoTemplate: "{{ .ItemRemote }}",
+		}}
+		_, err := NewLaunchSessionExecutor(zerolog.Nop(), &fakeSessionLauncher{}, nil, hostEnvironment{}).
+			Execute(t.Context(), node, OutputData{Key: "alert-1", Raw: json.RawMessage(`{"title":"down"}`)}, ActionInvocationInput{})
+		require.EqualError(t, err, "launch-session: repo rendered blank: the item names no repository")
+	})
+}
+
 func TestLaunchSessionExecutor_RerunUsesUniqueSessionName(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{})
@@ -452,4 +486,58 @@ func TestLaunchSessionExecutor_NoPostHookRunsNothing(t *testing.T) {
 	result, err := exec.Execute(t.Context(), launchWithPostHook("", 0), reviewItem(), ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, ExecutionLog{}, result.Log)
+}
+
+func TestLaunchSessionExecutor_RendersTheNameTemplate(t *testing.T) {
+	launcher := &fakeSessionLauncher{}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{})
+	action := actions.Action{ID: "launch:triage/review", Type: "launch-session", Config: &LaunchNodeActionConfig{
+		PromptTemplate: "hi", RepoTemplate: "{{ .Payload.repo }}",
+		NameTemplate: "Review #{{ .Payload.num }}",
+	}}
+
+	_, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Equal(t, "review-42", launcher.calls[0].Name)
+}
+
+func TestLaunchSessionExecutor_BlankNameTemplateIsError(t *testing.T) {
+	launcher := &fakeSessionLauncher{}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{})
+	action := actions.Action{ID: "launch:triage/review", Type: "launch-session", Config: &LaunchNodeActionConfig{
+		PromptTemplate: "hi", RepoTemplate: "{{ .Payload.repo }}",
+		NameTemplate: "{{ .Payload.missing }}",
+	}}
+
+	_, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.Error(t, err)
+	assert.Empty(t, launcher.calls)
+}
+
+func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheWorkspaceLauncher(t *testing.T) {
+	workspaces := &fakeWorkspaceSessionLauncher{}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), nil, workspaces, hostEnvironment{})
+	action := actions.Action{ID: "triage", Type: "launch-session", Config: &actions.LaunchSessionConfig{
+		PromptTemplate: "triage", Workspace: "alerts",
+	}}
+	ref := models.ItemRef{ProfileID: "p", SourceKind: "grafana", ExternalID: "alert-1"}
+
+	_, err := exec.Execute(t.Context(), action, OutputData{
+		Key: "alert-1", Raw: json.RawMessage(`{}`), Payload: map[string]any{}, Origin: ref,
+	}, ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Len(t, workspaces.calls, 1)
+	assert.Equal(t, []models.ItemRef{ref}, workspaces.calls[0].Origins)
+}
+
+func TestLaunchSessionExecutor_RunsALaunchNodeProjection(t *testing.T) {
+	launcher := &fakeSessionLauncher{}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, hostEnvironment{})
+	action, ok := NewFlowActions(launchFlows(), nil).Get(models.LaunchActionID("triage/review"))
+	require.True(t, ok)
+
+	_, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Equal(t, []LaunchSessionRequest{{Name: "review-42", Prompt: "Review 42", Agent: "claude", Repo: "example/repo"}}, launcher.calls)
 }

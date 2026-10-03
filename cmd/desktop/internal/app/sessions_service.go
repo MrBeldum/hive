@@ -88,6 +88,7 @@ type inboxItemRefReader interface {
 // to sessions Hive no longer has.
 type itemSessionStore interface {
 	List(ctx context.Context, ref models.ItemRef) ([]stores.ItemSession, error)
+	ListChats(ctx context.Context, ref models.ItemRef) ([]stores.ItemChat, error)
 	Unlink(ctx context.Context, sessionIDs []string) error
 }
 
@@ -298,6 +299,29 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 	return statuses, nil
 }
 
+// ItemChats returns the agent workspace chats an inbox item opened, newest
+// first.
+func (s *SessionsService) ItemChats(ctx context.Context, itemID int64) ([]dispatch.ItemChatView, error) {
+	ref, err := s.items.RefByID(ctx, itemID)
+	if err != nil {
+		if stores.IsNotFound(err) {
+			return nil, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
+		}
+		return nil, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+	}
+	chats, err := s.links.ListChats(ctx, ref)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing chats for item %d", itemID)
+	}
+	views := make([]dispatch.ItemChatView, 0, len(chats))
+	for _, chat := range chats {
+		views = append(views, dispatch.ItemChatView{
+			ID: chat.ChatID, Workspace: chat.Workspace, Name: chat.Name, CreatedAt: time.UnixMilli(chat.CreatedAt),
+		})
+	}
+	return views, nil
+}
+
 // ItemSessions returns the hive sessions an inbox item spawned, newest first,
 // joined to the state hive reports for them now. The read is also what
 // reconciles (ADR macos-dmg-installer).
@@ -477,30 +501,28 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// Items pruned between opening and submitting the form are omitted rather
 	// than blocking the one session the user asked for.
 	var origins []models.ItemRef
-	if repo != "" {
-		seenIDs := make(map[int64]struct{}, len(req.ItemIDs))
-		seenOrigins := make(map[models.ItemRef]struct{}, len(req.ItemIDs))
-		for _, itemID := range req.ItemIDs {
-			if itemID <= 0 {
-				continue
-			}
-			if _, exists := seenIDs[itemID]; exists {
-				continue
-			}
-			seenIDs[itemID] = struct{}{}
-			resolved, err := s.items.RefByID(ctx, itemID)
-			if err != nil {
-				if stores.IsNotFound(err) {
-					continue
-				}
-				return 0, Wrap(err, KindInternal, "reading inbox item %d", itemID)
-			}
-			if _, exists := seenOrigins[resolved]; exists {
-				continue
-			}
-			seenOrigins[resolved] = struct{}{}
-			origins = append(origins, resolved)
+	seenIDs := make(map[int64]struct{}, len(req.ItemIDs))
+	seenOrigins := make(map[models.ItemRef]struct{}, len(req.ItemIDs))
+	for _, itemID := range req.ItemIDs {
+		if itemID <= 0 {
+			continue
 		}
+		if _, exists := seenIDs[itemID]; exists {
+			continue
+		}
+		seenIDs[itemID] = struct{}{}
+		resolved, err := s.items.RefByID(ctx, itemID)
+		if err != nil {
+			if stores.IsNotFound(err) {
+				continue
+			}
+			return 0, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+		}
+		if _, exists := seenOrigins[resolved]; exists {
+			continue
+		}
+		seenOrigins[resolved] = struct{}{}
+		origins = append(origins, resolved)
 	}
 
 	prompt := strings.TrimSpace(req.Prompt)
@@ -529,7 +551,7 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 		var err error
 		if workspace != "" {
 			_, err = s.workspaceLauncher.LaunchWorkspaceSession(bg, dispatch.LaunchWorkspaceSessionRequest{
-				Workspace: workspace, Name: name, Prompt: prompt,
+				Workspace: workspace, Name: name, Prompt: prompt, Origins: launch.Origins,
 			})
 		} else {
 			_, err = s.launcher.LaunchSession(bg, launch)
