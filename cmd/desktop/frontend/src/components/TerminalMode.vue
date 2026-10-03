@@ -1507,6 +1507,11 @@ const {
 useWailsEvent('jobs:updated', () => {
   void reloadSessions()
 })
+// jobs:updated only covers this app's own session work; the CLI writes
+// hive.db from another process.
+useWailsEvent('sessions:updated', () => {
+  void reloadSessions()
+})
 
 const tabs = computed<TerminalWindowTab[]>(() => visible.value?.tabs.value ?? [])
 const activeWindowId = computed(() => visible.value?.activeWindowId.value ?? '')
