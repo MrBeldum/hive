@@ -23,46 +23,49 @@ the table.
 
 ## Index
 
-| Block                | Use it for                                                                  | Key props                                                                                                                                           |
-| -------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BaseButton`         | Every button with a label.                                                  | `variant` (`primary`, `secondary`, `danger`, `danger-outline`, `ghost`), `size` (`sm`, `md`), `busy`, `disabled`, `type`; `#icon` slot              |
-| `BaseModal`          | A centered dialog.                                                          | `title`, `icon`, `tone`, `width`, `ariaRole`, `busy`, `closeOnBackdrop`, `closeOnEscape`, `testid`; emits `close`; `#footer`, `#header-actions`     |
-| `DrawerSheet`        | A side sheet (editors, integration setup). Resizable unless `width` is set. | `ariaLabel`, `testid`, `width`, `storageKey`, `closeOnEscape`, `closeOnBackdrop`, `trapFocus`, `returnFocusTo`; emits `close`; `#header`, `#footer` |
-| `ConfirmationDialog` | A modal "are you sure" with optional detail rows.                           | `title`, `description`, `details`, `confirmLabel`, `busy`, `error`, `testid`; emits `confirm`, `cancel`                                             |
-| `InlineConfirm`      | A confirm that replaces a row or card in place, no overlay.                 | `title`, `description`, `confirmLabel`, `cancelLabel`, `busy`, `error`, `testid`; emits `confirm`, `cancel`                                         |
-| `InlineError`        | Any error message shown in a view, form, or sheet; renders `role="alert"`.  | `message` (accepts `null`), `variant` (`banner`, `line`), `testid`; default slot                                                                    |
-| `EmptyState`         | "Nothing here yet" text in a list or pane.                                  | `message`, `boxed`; default slot                                                                                                                    |
-| `ViewHeader`         | The title strip of a full-frame view (Settings, Activity, Dev).             | `#title` slot                                                                                                                                       |
-| `AppSelect`          | A dropdown or combobox.                                                     | `modelValue`, `options`, `placeholder`, `searchable`, `editable`, `disabled`, `size`, `testid`, `ariaLabel`                                         |
-| `AppCheckbox`        | A labelled checkbox.                                                        | `modelValue`, `label`, `hint`, `disabled`, `testid`                                                                                                 |
-| `AppSwitch`          | An on/off toggle that applies at once.                                      | `modelValue`, `label`, `hint`, `ariaLabel`, `disabled`, `size`, `testid`                                                                            |
-| `SegmentedControl`   | A choice from a few named options, shown as a strip.                        | `modelValue`, `options`, `label`, `hint`, `columns`, `ariaLabel`, `testid`                                                                          |
-| `AppMenu`            | A dropdown menu of actions.                                                 | `entries`, `anchor`, `flip`, `width`, `ignore`, `testid`; emits `select`, `close`                                                                   |
-| `AppTooltip`         | A hover or focus hint on any trigger.                                       | `text` (empty renders no tooltip), `delay`; default slot is the trigger                                                                             |
-| `BaseBadge`          | A status pill or chip.                                                      | `tone`, `variant` (`pill`, `chip`), `dot`                                                                                                           |
-| `BaseCard`           | A bordered card, optionally clickable.                                      | `as` (`article`, `button`), `interactive`, `padded`; `#icon`, `#actions`                                                                            |
-| `BaseIconBadge`      | A square tile behind an icon.                                               | `size` (px), `rounded`                                                                                                                              |
-| `PanelResizeHandle`  | The drag edge of a resizable panel, wired to `useResizablePanel`.           | `edge`, `name`, `start`, `step`                                                                                                                     |
-| `SparkLine`          | A small trend line under a number. Set its height with a class.             | `values`, `capacity`                                                                                                                                |
+| Block                | Use it for                                                                                                    | Key props                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BaseButton`         | Every button with a label.                                                                                    | `variant` (`primary`, `secondary`, `danger`, `danger-outline`, `ghost`), `size` (`sm`, `md`), `busy`, `disabled`, `type`; `#icon` slot                                                                                    |
+| `BaseModal`          | A centered dialog.                                                                                            | `title`, `icon`, `tone`, `width`, `ariaRole`, `busy`, `closeOnBackdrop`, `closeOnEscape`, `testid`; emits `close`; `#footer`, `#header-actions`                                                                           |
+| `DrawerSheet`        | A side sheet (editors, integration setup). Resizable unless `width` is set.                                   | `ariaLabel`, `testid`, `width`, `storageKey`, `closeOnEscape`, `closeOnBackdrop`, `trapFocus`, `returnFocusTo`; emits `close`; `#header`, `#footer`                                                                       |
+| `ConfirmationDialog` | A modal "are you sure" with optional detail rows.                                                             | `title`, `description`, `details`, `confirmLabel`, `busy`, `error`, `testid`; emits `confirm`, `cancel`                                                                                                                   |
+| `InlineConfirm`      | A confirm that replaces a row or card in place, no overlay.                                                   | `title`, `description`, `confirmLabel`, `cancelLabel`, `busy`, `error`, `testid`; emits `confirm`, `cancel`                                                                                                               |
+| `InlineError`        | Any error message shown in a view, form, or sheet; renders `role="alert"`.                                    | `message` (accepts `null`), `variant` (`banner`, `line`), `testid`; default slot                                                                                                                                          |
+| `EmptyState`         | "Nothing here yet" text in a list or pane.                                                                    | `message`, `boxed`; default slot                                                                                                                                                                                          |
+| `ViewHeader`         | The title strip of a full-frame view (Settings, Activity, Dev).                                               | `#title` slot                                                                                                                                                                                                             |
+| `FormField`          | A label above a control, with a hint or an error below.                                                       | `label`, `hint`, `error` (accepts `null`), `testid`; `#default="{ id }"` (bind `:id="id"` on the control), `#label`                                                                                                       |
+| `TextInput`          | A one-line text field. Other attributes (`id`, `placeholder`, `data-testid`, `@keydown`) go to the `<input>`. | `v-model` (always a string), `type`, `monospace`, `size` (`sm`, `md`), `invalid`; exposes `focus()`, `select()`                                                                                                           |
+| `TextArea`           | A multi-line text field, styled like `TextInput`.                                                             | `v-model`, `rows`, `monospace`, `size`, `invalid`; exposes `focus()`, `select()`                                                                                                                                          |
+| `SearchField`        | A filter or search box with a search icon. Escape with text clears it; Escape when empty passes through.      | `v-model`, `variant` (`boxed`, `bar`), `placeholder`, `ariaLabel`, `testid`; emits `escape` (on an empty field); `@keydown` and other attributes go to the `<input>`, `class` to the field; exposes `focus()`, `select()` |
+| `AppSelect`          | A dropdown or combobox.                                                                                       | `modelValue`, `options`, `placeholder`, `searchable`, `editable`, `disabled`, `size`, `testid`, `ariaLabel`, `id`                                                                                                         |
+| `AppCheckbox`        | A labelled checkbox.                                                                                          | `modelValue`, `label`, `hint`, `disabled`, `testid`                                                                                                                                                                       |
+| `AppSwitch`          | An on/off toggle that applies at once.                                                                        | `modelValue`, `label`, `hint`, `ariaLabel`, `disabled`, `size`, `testid`                                                                                                                                                  |
+| `SegmentedControl`   | A choice from a few named options, shown as a strip.                                                          | `modelValue`, `options`, `label`, `hint`, `columns`, `ariaLabel`, `testid`                                                                                                                                                |
+| `AppMenu`            | A dropdown menu of actions.                                                                                   | `entries`, `anchor`, `flip`, `width`, `ignore`, `testid`; emits `select`, `close`                                                                                                                                         |
+| `AppTooltip`         | A hover or focus hint on any trigger.                                                                         | `text` (empty renders no tooltip), `delay`; default slot is the trigger                                                                                                                                                   |
+| `BaseBadge`          | A status pill or chip.                                                                                        | `tone`, `variant` (`pill`, `chip`), `dot`                                                                                                                                                                                 |
+| `BaseCard`           | A bordered card, optionally clickable.                                                                        | `as` (`article`, `button`), `interactive`, `padded`; `#icon`, `#actions`                                                                                                                                                  |
+| `BaseIconBadge`      | A square tile behind an icon.                                                                                 | `size` (px), `rounded`                                                                                                                                                                                                    |
+| `PanelResizeHandle`  | The drag edge of a resizable panel, wired to `useResizablePanel`.                                             | `edge`, `name`, `start`, `step`                                                                                                                                                                                           |
+| `SparkLine`          | A small trend line under a number. Set its height with a class.                                               | `values`, `capacity`                                                                                                                                                                                                      |
 
 ### Also available outside this folder
 
 The flow editor's form kit, `pipeline/fields/` (import from
-`pipeline/fields`). Each takes `label`, `hint`, `error`, `testid` and a
-`v-model`:
+`pipeline/fields`). Each is a control inside a `FormField` and takes
+`label`, `hint`, `error`, `testid` and a `v-model`:
 
-| Field            | Use it for                                                      |
-| ---------------- | --------------------------------------------------------------- |
-| `FieldRow`       | The label, slot, and hint-or-error wrapper the others build on. |
-| `TextField`      | A one-line text input; `monospace` for ids and globs.           |
-| `TextareaField`  | A multi-line input; `rows`, `monospace`.                        |
-| `NumberField`    | A number input; `min`, `max`, `step`.                           |
-| `SelectField`    | `AppSelect` inside a `FieldRow`.                                |
-| `ToggleField`    | `AppCheckbox` with field props.                                 |
-| `GlobListField`  | One glob per line, bound to `string[]`.                         |
-| `IntervalField`  | A source node's poll interval.                                  |
-| `CodeField`      | A syntax-colored code editor.                                   |
-| `MarkImageField` | A source's feed-mark image picker.                              |
+| Field            | Use it for                                            |
+| ---------------- | ----------------------------------------------------- |
+| `TextField`      | A one-line text input; `monospace` for ids and globs. |
+| `TextareaField`  | A multi-line input; `rows`, `monospace`.              |
+| `NumberField`    | A number input; `min`, `max`, `step`.                 |
+| `SelectField`    | `AppSelect` inside a `FormField`.                     |
+| `ToggleField`    | `AppCheckbox` with field props.                       |
+| `GlobListField`  | One glob per line, bound to `string[]`.               |
+| `IntervalField`  | A source node's poll interval.                        |
+| `CodeField`      | A syntax-colored code editor.                         |
+| `MarkImageField` | A source's feed-mark image picker.                    |
 
 The Settings page structure, `components/settings/`:
 
@@ -74,7 +77,6 @@ The Settings page structure, `components/settings/`:
 | `SettingsSection` | A titled group of settings; `boxed` stacks rows into one card. |
 | `SettingsHeading` | A section or group label.                                      |
 | `SettingsRow`     | One setting: label on the left, control on the right.          |
-| `SettingsField`   | Label above, control, hint below.                              |
 | `SettingsPathRow` | An on-disk path with copy, open, and reveal actions.           |
 | `SettingsStepper` | A number setting stepped between `min` and `max`.              |
 
@@ -100,6 +102,38 @@ register.
 
 A labelled button is a `BaseButton`. An icon-only button may be a plain
 `<button>` until an icon-button block exists; give it an `aria-label`.
+
+### Form fields are `FormField` plus `TextInput`
+
+A labelled control is a `FormField` around the control, and a text field
+is a `TextInput` or a `TextArea`. Do not write a `<div class="mb-1.5 ...">`
+label, a `<label>` that wraps its input, or a `rounded-lg border ...` class
+list on a raw `<input>`. Take the `id` from the default slot and bind it on
+the control, so a click on the label focuses it:
+
+```vue
+<FormField v-slot="{ id }" label="Name" :error="nameError" testid="thing-name">
+  <TextInput :id="id" v-model="name" data-testid="thing-name-input" />
+</FormField>
+```
+
+Use `size="sm"` in drawers and in a row beside a small button. Layout
+classes (`flex-1`, `mb-3`) go on the component; for a fixed width, wrap it
+in a `<div>`, because `TextInput` is `w-full`.
+
+Use `#label` when the label needs markup, such as an "(optional)" suffix.
+A field that has no single control (a group of switches, a list) can still
+use `FormField` for its label and hint.
+
+### Search boxes are `SearchField`
+
+Use `boxed` in a view toolbar and `bar` inside a flush `h-9 border-b` row
+that the host draws. Escape behaves the same in every search box: with
+text, it clears the text and stops there, so the view or overlay stays
+open; on an empty field it passes through to the Escape stack, and the
+field emits `escape` for a host that moves focus out. The search inside a
+popover (`AppSelect`, `RepositorySelect`) stays part of that popover,
+because there Escape closes the popover.
 
 ### Errors are `InlineError`, empty states are `EmptyState`
 

@@ -2,6 +2,8 @@
 // sources.exec has no runtime.ts: the command runs in Go, on the poll tick.
 import { computed } from 'vue'
 import BaseButton from '../../../components/ui/BaseButton.vue'
+import FormField from '../../../components/ui/FormField.vue'
+import TextInput from '../../../components/ui/TextInput.vue'
 import { defaultExecSourceIcon, feedIconComponent, feedIconOptions } from '../../../lib/feedIcons'
 import {
   IntervalField,
@@ -110,24 +112,29 @@ const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultE
       @update:model-value="(cwd: string) => update({ cwd: cwd || undefined })"
     />
 
-    <div>
-      <div class="mb-1.5 text-[12px] text-text-2">Environment</div>
+    <FormField
+      label="Environment"
+      hint="Added to the environment the command inherits. Values are literal — nothing is expanded."
+    >
       <div v-for="(entry, index) in envEntries" :key="index" class="mb-2 flex items-center gap-2">
-        <input
-          type="text"
-          :value="entry[0]"
-          placeholder="NAME"
-          class="w-2/5 rounded-lg border border-strong bg-app px-3 py-2 font-mono text-[12.5px] text-text outline-none placeholder:text-text-4 focus:border-accent"
-          :data-testid="`sources.exec-editor-env-name-${index}`"
-          @input="setEnvName(index, ($event.target as HTMLInputElement).value)"
-        />
-        <input
-          type="text"
-          :value="entry[1]"
+        <div class="w-2/5">
+          <TextInput
+            :model-value="entry[0]"
+            placeholder="NAME"
+            size="sm"
+            monospace
+            :data-testid="`sources.exec-editor-env-name-${index}`"
+            @update:model-value="setEnvName(index, $event)"
+          />
+        </div>
+        <TextInput
+          :model-value="entry[1]"
           placeholder="value"
-          class="min-w-0 flex-1 rounded-lg border border-strong bg-app px-3 py-2 font-mono text-[12.5px] text-text outline-none placeholder:text-text-4 focus:border-accent"
+          size="sm"
+          monospace
+          class="min-w-0 flex-1"
           :data-testid="`sources.exec-editor-env-value-${index}`"
-          @input="setEnvValue(index, ($event.target as HTMLInputElement).value)"
+          @update:model-value="setEnvValue(index, $event)"
         />
         <button
           type="button"
@@ -143,10 +150,7 @@ const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultE
       <BaseButton variant="secondary" size="sm" data-testid="sources.exec-editor-env-add" @click="addEnv">
         Add variable
       </BaseButton>
-      <p class="mt-1.5 text-[11.5px] text-text-4">
-        Added to the environment the command inherits. Values are literal — nothing is expanded.
-      </p>
-    </div>
+    </FormField>
 
     <SelectField
       label="Item icon"

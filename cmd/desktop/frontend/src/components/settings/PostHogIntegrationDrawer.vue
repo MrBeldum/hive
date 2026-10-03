@@ -6,7 +6,8 @@ import IconBug from '~icons/lucide/bug'
 import AppSelect, { type AppSelectOption } from '../ui/AppSelect.vue'
 import BaseButton from '../ui/BaseButton.vue'
 import DrawerSheet from '../ui/DrawerSheet.vue'
-import SettingsField from './SettingsField.vue'
+import FormField from '../ui/FormField.vue'
+import TextInput from '../ui/TextInput.vue'
 import { usePostHogConnection } from '../../composables/usePostHogConnection'
 import { useIntegrations } from '../../composables/useIntegrations'
 
@@ -106,7 +107,7 @@ async function onDisconnect(account: string) {
       </div>
     </template>
 
-    <SettingsField label="Connected projects" testid="posthog-connected">
+    <FormField label="Connected projects" testid="posthog-connected">
       <div v-if="connectedAccounts.length > 0" class="flex flex-col gap-2">
         <div
           v-for="account in connectedAccounts"
@@ -132,10 +133,10 @@ async function onDisconnect(account: string) {
       >
         No project connected
       </div>
-    </SettingsField>
+    </FormField>
 
     <div class="mt-5">
-      <SettingsField
+      <FormField
         label="Connect a project"
         hint="The key is validated once and stored in your keychain; only the host and project id are written to disk."
         testid="posthog-connect"
@@ -170,21 +171,23 @@ async function onDisconnect(account: string) {
         </div>
 
         <div class="flex flex-col gap-2">
-          <input
+          <TextInput
             v-model="urlInput"
             type="url"
             :disabled="picking"
             placeholder="https://us.posthog.com"
-            class="w-full rounded-lg border border-strong bg-app px-[11px] py-[9px] font-mono text-[13px] text-text outline-none focus:border-accent disabled:opacity-60"
             data-testid="posthog-connect-url"
+            size="sm"
+            monospace
           />
-          <input
+          <TextInput
             v-model="tokenInput"
             type="password"
             :disabled="picking"
             placeholder="phx_…"
-            class="w-full rounded-lg border border-strong bg-app px-[11px] py-[9px] font-mono text-[13px] text-text outline-none focus:border-accent disabled:opacity-60"
             data-testid="posthog-connect-token"
+            size="sm"
+            monospace
           />
 
           <!-- Step two. A personal API key spans projects, so the project is
@@ -222,7 +225,7 @@ async function onDisconnect(account: string) {
             >
           </div>
         </div>
-      </SettingsField>
+      </FormField>
     </div>
     <InlineError v-if="error" testid="posthog-connect-error" variant="line" class="mt-2" :message="error" />
 

@@ -5,7 +5,8 @@ import { Browser } from '@wailsio/runtime'
 import IconActivity from '~icons/lucide/activity'
 import BaseButton from '../ui/BaseButton.vue'
 import DrawerSheet from '../ui/DrawerSheet.vue'
-import SettingsField from './SettingsField.vue'
+import FormField from '../ui/FormField.vue'
+import TextInput from '../ui/TextInput.vue'
 import { useGrafanaConnection } from '../../composables/useGrafanaConnection'
 import { useIntegrations } from '../../composables/useIntegrations'
 
@@ -82,7 +83,7 @@ async function onDisconnect(account: string) {
       </div>
     </template>
 
-    <SettingsField label="Connected stacks" testid="grafana-connected">
+    <FormField label="Connected stacks" testid="grafana-connected">
       <div v-if="connectedAccounts.length > 0" class="flex flex-col gap-2">
         <div
           v-for="account in connectedAccounts"
@@ -108,10 +109,10 @@ async function onDisconnect(account: string) {
       >
         No stack connected
       </div>
-    </SettingsField>
+    </FormField>
 
     <div class="mt-5">
-      <SettingsField
+      <FormField
         label="Connect a stack"
         hint="The token is validated once and stored in your keychain; only the URL is written to disk."
         testid="grafana-connect"
@@ -144,19 +145,21 @@ async function onDisconnect(account: string) {
           </div>
         </div>
         <div class="flex flex-col gap-2">
-          <input
+          <TextInput
             v-model="urlInput"
             type="url"
             placeholder="https://grafana.example.com"
-            class="w-full rounded-lg border border-strong bg-app px-[11px] py-[9px] font-mono text-[13px] text-text outline-none focus:border-accent"
             data-testid="grafana-connect-url"
+            size="sm"
+            monospace
           />
-          <input
+          <TextInput
             v-model="tokenInput"
             type="password"
             placeholder="glsa_…"
-            class="w-full rounded-lg border border-strong bg-app px-[11px] py-[9px] font-mono text-[13px] text-text outline-none focus:border-accent"
             data-testid="grafana-connect-token"
+            size="sm"
+            monospace
           />
           <div>
             <BaseButton
@@ -169,7 +172,7 @@ async function onDisconnect(account: string) {
             >
           </div>
         </div>
-      </SettingsField>
+      </FormField>
     </div>
     <InlineError v-if="error" testid="grafana-connect-error" variant="line" class="mt-2" :message="error" />
 

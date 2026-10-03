@@ -3,7 +3,8 @@
 // FeedEditorSheet's filter groups. Globs may contain commas via brace
 // expansion ("acme/{a,b}"), so lines are never comma-split.
 import { computed } from 'vue'
-import FieldRow from './FieldRow.vue'
+import FormField from '../../components/ui/FormField.vue'
+import TextArea from '../../components/ui/TextArea.vue'
 
 const props = defineProps<{
   label?: string
@@ -26,20 +27,22 @@ function parseLines(text: string): string[] {
 
 const text = computed(() => (props.modelValue ?? []).join('\n'))
 
-function onInput(e: Event) {
-  emit('update:modelValue', parseLines((e.target as HTMLTextAreaElement).value))
+function onUpdate(value: string) {
+  emit('update:modelValue', parseLines(value))
 }
 </script>
 
 <template>
-  <FieldRow :label="label" :hint="hint" :error="error" :testid="testid">
-    <textarea
-      :value="text"
+  <FormField v-slot="{ id }" :label="label" :hint="hint" :error="error" :testid="testid">
+    <TextArea
+      :id="id"
+      :model-value="text"
       :rows="rows ?? 2"
       :placeholder="placeholder"
-      class="w-full resize-y rounded-lg border border-strong bg-app px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-text outline-none placeholder:text-text-4 focus:border-accent"
+      monospace
+      class="leading-relaxed"
       :data-testid="testid"
-      @input="onInput"
+      @update:model-value="onUpdate"
     />
-  </FieldRow>
+  </FormField>
 </template>

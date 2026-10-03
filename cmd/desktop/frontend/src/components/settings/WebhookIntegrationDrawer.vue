@@ -10,7 +10,8 @@ import IconRefresh from '~icons/lucide/refresh-cw'
 import AppSwitch from '../ui/AppSwitch.vue'
 import BaseButton from '../ui/BaseButton.vue'
 import DrawerSheet from '../ui/DrawerSheet.vue'
-import SettingsField from './SettingsField.vue'
+import FormField from '../ui/FormField.vue'
+import TextInput from '../ui/TextInput.vue'
 import { useClipboard } from '../../composables/useClipboard'
 import { useWebhookSettings } from '../../stores/useWebhookSettings'
 
@@ -137,19 +138,22 @@ onMounted(() => void reload())
         testid="webhook-settings-enabled"
       />
 
-      <SettingsField label="Port" :hint="portHint" testid="webhook-settings-port">
+      <FormField v-slot="{ id }" label="Port" :hint="portHint" testid="webhook-settings-port">
         <div class="flex items-center gap-2">
-          <input
+          <TextInput
+            :id="id"
             v-model="port"
             type="number"
             inputmode="numeric"
             min="1024"
             max="65535"
             step="1"
-            class="min-w-0 flex-1 rounded-lg border border-strong bg-app px-[11px] py-[9px] font-mono text-[13px] text-text outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-            :class="!portValid ? 'border-severity-error' : ''"
             data-testid="webhook-settings-port-input"
             :disabled="loading || overridden"
+            size="sm"
+            monospace
+            :invalid="!portValid"
+            class="min-w-0 flex-1"
           />
           <button
             type="button"
@@ -163,12 +167,12 @@ onMounted(() => void reload())
             <IconRefresh class="size-[14px]" />
           </button>
         </div>
-      </SettingsField>
+      </FormField>
       <InlineError v-if="!portValid" testid="webhook-settings-port-error" variant="line" class="-mt-3">
         Enter 0 for automatic allocation or a whole number between 1024 and 65535.
       </InlineError>
 
-      <SettingsField
+      <FormField
         v-if="baseUrl"
         label="Base URL"
         hint="Each sources.webhook node appends its own path to this."
@@ -190,7 +194,7 @@ onMounted(() => void reload())
             {{ urlCopied ? 'Copied' : 'Copy' }}
           </BaseButton>
         </div>
-      </SettingsField>
+      </FormField>
 
       <p
         v-if="restartPending"
