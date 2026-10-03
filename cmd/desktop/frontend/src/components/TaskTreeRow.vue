@@ -12,6 +12,8 @@ import IconLayers from '~icons/lucide/layers'
 import IconTerminal from '~icons/lucide/terminal'
 import { relativeAge } from '../lib/age'
 import { statusMeta, type TaskTreeNode } from '../lib/tasksPresentation'
+import AppTooltip from './ui/AppTooltip.vue'
+import IconButton from './ui/IconButton.vue'
 import BaseBadge from './ui/BaseBadge.vue'
 
 const props = defineProps<{
@@ -44,16 +46,15 @@ const indent = computed(() => props.depth * 18 + 10)
     @click="emit('select', node.item.id)"
     @keydown.enter.prevent="emit('select', node.item.id)"
   >
-    <button
+    <IconButton
       v-if="node.children.length"
-      type="button"
-      class="flex size-4 shrink-0 items-center justify-center text-text-4 hover:text-text"
+      :label="collapsed ? 'Expand' : 'Collapse'"
+      :icon="collapsed ? IconChevronRight : IconChevronDown"
+      size="sm"
       data-testid="task-tree-toggle"
       @click.stop="emit('toggle', node.item.id)"
-    >
-      <component :is="collapsed ? IconChevronRight : IconChevronDown" class="size-3" />
-    </button>
-    <span v-else class="size-4 shrink-0" aria-hidden="true" />
+    />
+    <span v-else class="size-4.5 shrink-0" aria-hidden="true" />
 
     <component
       :is="isEpic ? IconLayers : IconCircleDot"
@@ -77,13 +78,11 @@ const indent = computed(() => props.depth * 18 + 10)
       <IconBan class="size-2.5" aria-hidden="true" />Blocked
     </BaseBadge>
 
-    <BaseBadge
-      v-if="node.item.sessionId"
-      class="shrink-0 justify-center px-1 py-0.5"
-      :title="`Linked to session ${sessionName || node.item.sessionId}`"
-      data-testid="task-tree-session"
-      ><IconTerminal class="size-2.5" aria-hidden="true"
-    /></BaseBadge>
+    <AppTooltip v-if="node.item.sessionId" :text="`Linked to session ${sessionName || node.item.sessionId}`">
+      <BaseBadge class="shrink-0 justify-center px-1 py-0.5" data-testid="task-tree-session"
+        ><IconTerminal class="size-2.5" aria-hidden="true"
+      /></BaseBadge>
+    </AppTooltip>
 
     <span
       class="shrink-0 rounded-md px-1.5 py-0.5 text-micro font-medium"

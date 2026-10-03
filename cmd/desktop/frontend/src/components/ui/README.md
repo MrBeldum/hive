@@ -26,6 +26,7 @@ the table.
 | Block                | Use it for                                                                                                                                                                                       | Key props                                                                                                                                                                                                                                                                                                                                                                   |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BaseButton`         | Every button with a label.                                                                                                                                                                       | `variant` (`primary`, `secondary`, `danger`, `danger-outline`, `ghost`), `size` (`xs`, `sm`, `md`), `busy` (disables it and puts a `Spinner` in place of the icon), `disabled`, `type`; `#icon` slot                                                                                                                                                                        |
+| `IconButton`         | A button that shows only an icon. `label` is its accessible name and its tooltip.                                                                                                                | `label`, `icon`, `tooltip` (longer hover text), `size` (`sm` 18px, `md` 24px, `lg` 28px, `xl` 34px), `variant` (`ghost`, `outline`), `tone` (`danger`), `active`, `busy`, `disabled`; default slot for a badge dot                                                                                                                                                          |
 | `BaseModal`          | A centered dialog.                                                                                                                                                                               | `title`, `icon`, `tone`, `width`, `ariaRole`, `busy`, `closeOnBackdrop`, `closeOnEscape`, `testid`; emits `close`; `#footer`, `#header-actions`                                                                                                                                                                                                                             |
 | `DrawerSheet`        | A side sheet (editors, integration setup). Resizable unless `width` is set. Draws its own header.                                                                                                | `title`, `subtitle`, `icon`, `headerSize` (`sm` default, `lg` for editors), `closable`, `closeDisabled`, `ariaLabel` (defaults to `title`), `testid` (adds `-title`, `-subtitle`, `-close`, `-backdrop`), `width`, `storageKey`, `closeOnEscape`, `closeOnBackdrop`, `trapFocus`, `returnFocusTo`; emits `close`; `#icon` (replaces the tile), `#header-actions`, `#footer` |
 | `HubOverlay`         | The large panel a hub view (Tasks, Activity) opens in. It does not register in the open-modal count; the view inside handles Escape.                                                             | `label`, `testid`; emits `close`; default slot                                                                                                                                                                                                                                                                                                                              |
@@ -47,7 +48,7 @@ the table.
 | `AppMenu`            | A dropdown menu of actions. An entry with `checked` toggles; a `submenu` entry opens a nested menu beside it, with an optional filter box (`search`).                                            | `entries`, `anchor`, `flip`, `width`, `ignore`, `testid`, `search`; emits `select` (a nested choice too), `close`                                                                                                                                                                                                                                                           |
 | `AppTooltip`         | A hover or focus hint on any trigger.                                                                                                                                                            | `text` (empty renders no tooltip), `delay`; default slot is the trigger                                                                                                                                                                                                                                                                                                     |
 | `BaseBadge`          | A status pill or chip.                                                                                                                                                                           | `tone`, `variant` (`pill`, `chip`), `dot`                                                                                                                                                                                                                                                                                                                                   |
-| `CopyButton`         | A secondary button that copies a value and shows "Copied" for a moment.                                                                                                                          | `text` (empty does nothing), `label` (default `Copy`)                                                                                                                                                                                                                                                                                                                       |
+| `CopyButton`         | A secondary button that copies a value and shows "Copied" for a moment.                                                                                                                          | `text` (empty does nothing), `label` (default `Copy`), `size` (`sm` or `xs`)                                                                                                                                                                                                                                                                                                |
 | `Spinner`            | A decorative wait indicator beside text that says what is happening. Inside a button, use `BaseButton`'s `busy`.                                                                                 | none                                                                                                                                                                                                                                                                                                                                                                        |
 | `Kbd`                | A key or shortcut hint (`⌘K`, `esc`, `↵`).                                                                                                                                                       | `variant` (`plain` mono text in the surrounding color, the default; `boxed` key cap; `on-accent` inside a primary button)                                                                                                                                                                                                                                                   |
 | `BaseCard`           | A bordered card, optionally clickable.                                                                                                                                                           | `as` (`article`, `button`), `interactive`, `padded`; `#icon`, `#actions`                                                                                                                                                                                                                                                                                                    |
@@ -132,12 +133,40 @@ register.
 
 ### Buttons are `BaseButton`
 
-A labelled button is a `BaseButton`. An icon-only button may be a plain
-`<button>` until an icon-button block exists; give it an `aria-label`.
+A labelled button is a `BaseButton`. A button that shows only an icon is
+an `IconButton`: its `label` is the accessible name and the tooltip, so do
+not add `aria-label` or `title`. `md` is the default; `sm` fits a tree row,
+`lg` a title bar or a dialog header, `xl` the height of a `TextInput`. Pass
+`active` while a toggle's menu is open. A host can style an `IconButton` by
+class from its scoped CSS (a row action that fades in on hover), because
+scoped CSS wins over Tailwind's utility layer.
 
 `busy` is for the button whose action is running: it draws the spinner. A
 Cancel beside it that must not fire meanwhile takes `disabled`, not `busy`.
 `xs` is the compact button of a toolbar or a settings row.
+
+### Tooltips: `AppTooltip` or `title`
+
+WebKit shows a native `title` only after a second or two, so a hint that
+names something is an `AppTooltip` (`IconButton` has one built in):
+
+- the name of an icon-only control or a status icon
+- a warning or a state that the element shows only as a color or a glyph
+
+`AppTooltip` wraps its trigger in a `<span>`. Where a wrapper would break
+the layout (a `w-full` nav item, the segments of a `SegmentedControl`),
+bind `useTooltip`'s `triggers` on the element and render a `TooltipBubble`
+while its `anchor` is set.
+
+A native `title` is still right for the full text of content that the
+layout truncates or abbreviates: a long path, a name in a narrow row, the
+exact time behind "3m ago". A delayed hint is fine there.
+
+A status mark in a row of a hot list (the feed, the Code and Chats sidebar
+trees) keeps a native `title`, or none where the row's own `title` states
+it. Those marks sit in overlapped grid cells that a wrapper would break,
+and a mark under a hover control is `pointer-events: none`, so it never
+gets a hover at all.
 
 ### Form fields are `FormField` plus `TextInput`
 
@@ -221,7 +250,7 @@ Do not paste SVG markup for an icon Lucide has.
 
 Tailwind utilities only. Add a scoped `<style>` block only for a selector
 Tailwind cannot express (a pseudo-element, a keyframe, a child of
-`v-html`), as `AppTooltip` and `PanelResizeHandle` do.
+`v-html`), as `TooltipBubble` and `PanelResizeHandle` do.
 
 ## Tokens
 

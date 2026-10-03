@@ -17,6 +17,8 @@
 // starting a chat) or the manifest (create/edit workspace — delete lives in
 // the editor) is an emitted event; only tree state, the chat row menus, and
 // the chat delete confirmation live here.
+import AppTooltip from './ui/AppTooltip.vue'
+import IconButton from './ui/IconButton.vue'
 import InlineError from './ui/InlineError.vue'
 import { computed, ref, shallowRef, watch } from 'vue'
 import IconCalendarClock from '~icons/lucide/calendar-clock'
@@ -641,42 +643,37 @@ defineExpose({
               <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
               <!-- Three controls on one pitch, revealed together: the header
                  says nothing at rest but its own name and whether it is open. -->
-              <button
+              <IconButton
                 v-if="node.workspace"
-                type="button"
+                label="Edit workspace"
+                :icon="IconPencil"
+                size="sm"
                 class="row-action"
-                title="Edit workspace"
-                aria-label="Edit workspace"
                 data-testid="agents-sidebar-workspace-edit"
                 @click.stop="editWorkspace(node)"
-              >
-                <IconPencil class="size-3" />
-              </button>
-              <button
+              />
+              <IconButton
                 v-if="node.workspace"
-                type="button"
+                :label="`New chat in ${node.name}`"
+                :icon="IconPlus"
+                size="sm"
                 class="row-action"
-                :title="`New chat in ${node.name}`"
-                :aria-label="`New chat in ${node.name}`"
                 :disabled="startingSession"
                 data-testid="agents-sidebar-workspace-new-session"
                 @click.stop="startSessionIn(node)"
-              >
-                <IconPlus class="size-3" />
-              </button>
+              />
               <!-- The chevron trails the row, where the Code view's group chevron
                  sits, and says the same thing: the row itself folds, and this
                  is the affordance for it. -->
-              <button
-                type="button"
+              <IconButton
+                :label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
+                :icon="expanded(node) ? IconChevronDown : IconChevronRight"
+                size="sm"
                 class="ws-toggle"
-                :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
                 :aria-expanded="expanded(node)"
                 data-testid="agents-sidebar-workspace-toggle"
                 @click.stop="toggleExpanded(node)"
-              >
-                <component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3" />
-              </button>
+              />
             </div>
 
             <div v-if="expanded(node)" class="ws-well" data-testid="agents-sidebar-workspace-well">
@@ -742,28 +739,23 @@ defineExpose({
                   <!-- The pin mark rides the name's line rather than the trailing
                      slot, which the status mark and the menu toggle already
                      share. -->
-                  <IconPin
-                    v-if="isPinned(session.id)"
-                    class="size-2.5 shrink-0 text-text-4"
-                    title="Pinned to Code"
-                    data-testid="agents-sidebar-session-pinned"
-                  />
+                  <AppTooltip v-if="isPinned(session.id)" text="Pinned to Code">
+                    <IconPin class="size-2.5 shrink-0 text-text-4" data-testid="agents-sidebar-session-pinned" />
+                  </AppTooltip>
                   <span v-if="chatAge(session)" class="entry-age">{{ chatAge(session) }}</span>
                   <!-- The way from stopped to running, which the kebab alone did
                      not state. It goes through the same select the row's own
                      click does — selecting a stopped chat resumes it. -->
-                  <button
+                  <IconButton
                     v-if="!session.terminalId"
-                    type="button"
+                    :label="`Start ${session.name}`"
+                    :icon="IconPlay"
+                    size="sm"
                     class="entry-action"
-                    :title="`Start ${session.name}`"
-                    :aria-label="`Start ${session.name}`"
                     :disabled="startingSession"
                     data-testid="agents-sidebar-session-start"
                     @click.stop="emit('select-session', session)"
-                  >
-                    <IconPlay class="size-3" />
-                  </button>
+                  />
                   <!-- One cell, two occupants: the status is what the row says at
                      rest, the menu what it offers under the pointer. Neither
                      ever moves the name. -->
@@ -777,34 +769,29 @@ defineExpose({
                           sessionIndicators[session.id].color,
                           { 'animate-spin': sessionIndicators[session.id].animated },
                         ]"
-                        :title="sessionIndicators[session.id].label"
                         aria-hidden="true"
                       />
                       <span
                         v-else-if="session.terminalId"
                         class="size-2.5 rounded-full bg-severity-success"
-                        title="Agent running"
                         data-testid="agents-sidebar-session-liveness"
                       />
                       <span
                         v-else
                         class="size-2.5 rounded-full border border-text-4"
-                        title="Not running"
                         data-testid="agents-sidebar-session-idle"
                       />
                     </span>
-                    <button
-                      type="button"
+                    <IconButton
+                      label="Chat actions"
+                      :icon="IconEllipsisVertical"
+                      size="sm"
                       class="entry-menu"
-                      title="Chat actions"
-                      aria-label="Chat actions"
                       aria-haspopup="menu"
                       :aria-expanded="openMenu === `s:${session.id}`"
                       data-testid="agents-sidebar-session-menu"
                       @click="openSessionMenu(session, $event)"
-                    >
-                      <IconEllipsisVertical class="size-3" />
-                    </button>
+                    />
                   </div>
                   <AppMenu
                     v-if="openMenu === `s:${session.id}`"
@@ -871,17 +858,6 @@ defineExpose({
   outline-offset: -2px;
 }
 
-.ws-toggle {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-4);
-  cursor: pointer;
-}
 .ws-toggle:hover {
   background: var(--color-app);
   color: var(--color-text);
@@ -955,20 +931,11 @@ defineExpose({
 /* Revealed by opacity, not display, so every trailing column stays reserved:
    hovering a row never reflows the name or hides the count. */
 .row-action {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-4);
-  cursor: pointer;
   opacity: 0;
 }
 /* Darkening, not lightening: the row itself hovers to --color-chip, so a
    chip-coloured button would vanish into it. */
-.row-action:hover {
+.row-action:enabled:hover {
   background: var(--color-app);
   color: var(--color-text);
 }
@@ -978,11 +945,6 @@ defineExpose({
 }
 .ws-row:hover .row-action:disabled {
   opacity: 0.4;
-  cursor: default;
-}
-.row-action:disabled:hover {
-  background: none;
-  color: var(--color-text-4);
 }
 
 .entry-age {
@@ -1012,27 +974,11 @@ defineExpose({
 /* Start, on a stopped chat. It holds its cell at rest like .row-action does,
    so appearing under the pointer never re-truncates the name beside it. */
 .entry-action {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-4);
-  cursor: pointer;
   opacity: 0;
 }
-.entry-action:hover {
+.entry-action:enabled:hover {
   background: var(--color-raised);
   color: var(--color-text);
-}
-.entry-action:disabled {
-  cursor: default;
-}
-.entry-action:disabled:hover {
-  background: none;
-  color: var(--color-text-4);
 }
 .sidebar-entry:hover .entry-action,
 .entry-action:focus-visible,
@@ -1061,12 +1007,6 @@ defineExpose({
 .entry-menu {
   position: relative;
   z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  color: var(--color-text-4);
-  cursor: pointer;
   opacity: 0;
 }
 .entry-menu:hover,
