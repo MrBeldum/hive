@@ -33,8 +33,8 @@ type KeychainStore struct {
 	service   string
 }
 
-// IndexPath is where the ref index lives under a Hive Desktop data dir. The
-// hive CLI reads the same index so both programs share connected accounts.
+// IndexPath is the ref index under a Hive Desktop data dir. The CLI reads it
+// too, so both programs share connected accounts.
 func IndexPath(dataDir string) string {
 	return filepath.Join(dataDir, "desktop", "credentials.json")
 }

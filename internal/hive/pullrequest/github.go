@@ -10,22 +10,17 @@ import (
 	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
-// Tokens lists every token that might see a repository. An empty list means
-// no account is connected.
+// Tokens returns every token to try. An empty list reads as disconnected.
 type Tokens func(ctx context.Context) ([]string, error)
 
-// StoredGitHubTokens reads the GitHub accounts in the credential store, and
-// the HIVE_GITHUB_TOKEN override.
 func StoredGitHubTokens(store credentials.Store) Tokens {
 	return func(context.Context) ([]string, error) {
 		return credentials.ProviderValues(store, ghclient.Provider)
 	}
 }
 
-// GitHubTokensWithCLIFallback reads the credential store, and asks the gh CLI
-// only when the store has nothing. The CLI runs on machines without a
-// keychain, so a store that fails to read is logged and skipped rather than
-// hiding the gh token behind it.
+// GitHubTokensWithCLIFallback asks gh only when the store has nothing. A store
+// that fails to read is skipped: the CLI runs on machines with no keychain.
 func GitHubTokensWithCLIFallback(logger zerolog.Logger, store credentials.Store, gh func(ctx context.Context) (string, error)) Tokens {
 	return func(ctx context.Context) ([]string, error) {
 		tokens, err := credentials.ProviderValues(store, ghclient.Provider)
@@ -44,9 +39,8 @@ func GitHubTokensWithCLIFallback(logger zerolog.Logger, store credentials.Store,
 	}
 }
 
-// GitHubForge looks a branch's pull request up on github.com. GitHub
-// Enterprise is not it: an instance is reached at its own host, and nothing
-// configures one.
+// GitHubForge serves github.com only; nothing configures a GitHub Enterprise
+// host.
 type GitHubForge struct {
 	client *ghclient.Client
 	tokens Tokens
@@ -72,8 +66,8 @@ func (g *GitHubForge) PullRequest(ctx context.Context, key Key) (PullRequest, er
 	}
 
 	ref := ghclient.BranchRef{Owner: key.Owner, Repo: key.Repo, Branch: key.Branch}
-	// A repository an account cannot see resolves to a null alias, not an
-	// error, so the only way to know another account can see it is to ask.
+	// A repository an account cannot see is a null alias, not an error, so
+	// every account is asked.
 	var lastErr error
 	for _, token := range tokens {
 		results, err := g.client.WithTokenCopy(token).PullRequestsByBranch(ctx, []ghclient.BranchRef{ref})

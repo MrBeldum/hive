@@ -5,11 +5,22 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/colonyops/hive/internal/hive/pullrequest"
+	"github.com/colonyops/hive/internal/store"
+	"github.com/colonyops/hive/internal/store/db"
 )
+
+func newLookup(t *testing.T, forge pullrequest.Forge) *pullrequest.Service {
+	t.Helper()
+	database, err := db.Open(t.TempDir(), db.OpenOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+	return pullrequest.NewService(zerolog.Nop(), store.NewKVStore(database), pullrequest.NewGitHubForge(nil, nil), forge)
+}
 
 // The status bar renders the view, not the forge, so a Gitea session's badge
 // has to arrive in exactly the shape GitHub's does.
@@ -36,7 +47,7 @@ func TestForgeAnswersAGiteaSessionInTheSameView(t *testing.T) {
 	defer server.Close()
 
 	forge, host := connectedPullRequests(t, server.URL, "octocat")
-	lookup := pullrequest.NewService(pullrequest.NewGitHubForge(nil, nil), forge)
+	lookup := newLookup(t, forge)
 
 	view, err := lookup.Lookup(t.Context(),
 		pullrequest.Key{Host: host, Owner: "acme", Repo: "site", Branch: "feat/bar"}, false)
@@ -68,7 +79,7 @@ func TestForgeSeparatesABranchWithNoneFromAnUnservedHost(t *testing.T) {
 	defer server.Close()
 
 	forge, host := connectedPullRequests(t, server.URL, "octocat")
-	lookup := pullrequest.NewService(pullrequest.NewGitHubForge(nil, nil), forge)
+	lookup := newLookup(t, forge)
 
 	none, err := lookup.Lookup(t.Context(),
 		pullrequest.Key{Host: host, Owner: "acme", Repo: "site", Branch: "feat/bar"}, false)

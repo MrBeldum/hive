@@ -12,8 +12,7 @@ import (
 )
 
 // PullRequests resolves a session branch's pull request on whichever connected
-// instance serves the remote's host. It is the engine's pullrequest.Forge for
-// Gitea and Forgejo.
+// instance serves the remote's host. It is the pullrequest.Forge for Gitea.
 //
 // Which instance that is only the connected accounts can say: a remote names a
 // host, and nothing about a host identifies it as Gitea until an account
@@ -34,8 +33,6 @@ func (p *PullRequests) Serves(host string) bool {
 	return len(p.accounts(host)) > 0
 }
 
-// PullRequest answers the engine's pull request lookup for a session on a
-// connected instance.
 func (p *PullRequests) PullRequest(ctx context.Context, key pullrequest.Key) (pullrequest.PullRequest, error) {
 	pull, found, err := p.ForBranch(ctx, key.Host, key.Owner, key.Repo, key.Branch)
 	if err != nil {

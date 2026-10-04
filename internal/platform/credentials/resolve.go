@@ -91,10 +91,9 @@ func ListProvider(store Store, provider string) ([]Ref, error) {
 	return out, nil
 }
 
-// ProviderValues resolves every stored account of one provider, for a caller
-// that tries each in turn. The environment override names no account, so with
-// nothing stored a synthetic ref stands in to give Resolve something
-// well-formed to answer it with. A ref that resolves to nothing is skipped.
+// ProviderValues resolves every stored account of one provider. The env
+// override names no account, so with nothing stored a placeholder ref lets
+// Resolve answer it.
 func ProviderValues(store Store, provider string) ([]string, error) {
 	refs, err := ListProvider(store, provider)
 	if err != nil {

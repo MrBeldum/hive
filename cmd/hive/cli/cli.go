@@ -280,7 +280,7 @@ Run 'hive new' to create a new session from the current repository.`,
 			commandSet := plugins.NewCommandSet(config.DefaultUserCommands(), cfg.UserCommands)
 
 			allPlugins := []configuredPlugin{
-				{plugin: github.New(logger, cfg.Plugins.GitHub, kvStore, github.Deps{
+				{plugin: github.New(logger, cfg.Plugins.GitHub, github.Deps{
 					PullRequests: engine.PullRequests(),
 					Branch: func(ctx context.Context, dir string) (string, error) {
 						return engine.Git().Branch(ctx, dir)

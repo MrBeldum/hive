@@ -13,6 +13,8 @@ import (
 	"github.com/colonyops/hive/cmd/hive/internal/plugins"
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/hive/pullrequest"
+	"github.com/colonyops/hive/internal/store"
+	"github.com/colonyops/hive/internal/store/db"
 )
 
 type stubForge struct {
@@ -28,9 +30,13 @@ func (f *stubForge) PullRequest(_ context.Context, key pullrequest.Key) (pullreq
 	return f.pr, f.err
 }
 
-func newTestPlugin(forge *stubForge) *Plugin {
-	return New(zerolog.Nop(), config.GitHubPluginConfig{}, nil, Deps{
-		PullRequests: pullrequest.NewService(forge),
+func newTestPlugin(t *testing.T, forge *stubForge) *Plugin {
+	t.Helper()
+	database, err := db.Open(t.TempDir(), db.OpenOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+	return New(zerolog.Nop(), config.GitHubPluginConfig{}, Deps{
+		PullRequests: pullrequest.NewService(zerolog.Nop(), store.NewKVStore(database), forge),
 		Branch:       func(context.Context, string) (string, error) { return "feat/bar", nil },
 	})
 }
@@ -46,7 +52,7 @@ func refresh(t *testing.T, p *Plugin) map[string]plugins.Status {
 func TestRefreshStatusLooksUpTheSessionBranchOnItsRemote(t *testing.T) {
 	forge := &stubForge{pr: pullrequest.PullRequest{Status: pullrequest.StatusFound, Number: 7, State: "OPEN", IsDraft: true}}
 
-	got := refresh(t, newTestPlugin(forge))
+	got := refresh(t, newTestPlugin(t, forge))
 
 	assert.Equal(t, pullrequest.Key{Host: "github.com", Owner: "acme", Repo: "site", Branch: "feat/bar"}, forge.got)
 	assert.Equal(t, map[string]plugins.Status{"s1": {Label: "draft", Icon: "PR"}}, got)
@@ -58,6 +64,6 @@ func TestRefreshStatusShowsNothingWithoutAPullRequest(t *testing.T) {
 		{pr: pullrequest.PullRequest{Status: pullrequest.StatusDisconnected}},
 		{err: errors.New("bad credentials")},
 	} {
-		assert.Empty(t, refresh(t, newTestPlugin(forge)))
+		assert.Empty(t, refresh(t, newTestPlugin(t, forge)))
 	}
 }

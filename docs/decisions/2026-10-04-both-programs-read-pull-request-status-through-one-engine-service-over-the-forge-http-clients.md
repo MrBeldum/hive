@@ -19,7 +19,9 @@ integration container).
 ## Decision
 
 **`internal/hive/pullrequest` is the one pull request service.** `hive.Engine`
-builds it from `Ports.Forges` and keeps it, and its cache, across `Reload`.
+builds it from `Ports.Forges` and keeps it across `Reload`. It caches answers
+in the `hive.db` kv store, which both programs open, so it is the only cache.
+A failed lookup is not cached.
 A forge is a port: GitHub's lives in the engine, over
 `internal/platform/forge/ghclient`. Gitea's stays in the desktop's
 `sources/gitea` until its instance bindings move, because only the desktop
@@ -42,7 +44,7 @@ to read is logged and skipped. That way a missing keychain does not hide the
   shares their connected accounts with the CLI.
 - On macOS, the first CLI read of an account the desktop stored can show a
   keychain access prompt for the `hive` binary.
-- The CLI plugin keeps its kv cache and its `results_cache` duration, and
-  bypasses the service cache. The kv cache no longer stores a failed lookup.
+- The CLI's `results_cache` sets only how often the TUI polls. The cache
+  lifetime is the service's.
 - The CLI shows PR status for GitHub only. Gitea follows when its connector
   moves to the engine (the sources convergence).

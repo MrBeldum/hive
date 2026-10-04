@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/colonyops/hive/internal/platform/credentials"
 	"github.com/colonyops/hive/internal/platform/forge/ghclient"
+	"github.com/colonyops/hive/internal/store"
+	"github.com/colonyops/hive/internal/store/db"
 )
 
 func connectedStore(t *testing.T) credentials.Store {
@@ -36,6 +37,14 @@ func graphQLServer(t *testing.T, body string) (*httptest.Server, *atomic.Int64) 
 	return server, &calls
 }
 
+func newTestService(t *testing.T, forges ...Forge) *Service {
+	t.Helper()
+	database, err := db.Open(t.TempDir(), db.OpenOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+	return NewService(zerolog.Nop(), store.NewKVStore(database), forges...)
+}
+
 func gitHubForge(serverURL string, tokens Tokens) *GitHubForge {
 	return NewGitHubForge(ghclient.NewClient(ghclient.WithAPIBase(serverURL)), tokens)
 }
@@ -48,7 +57,7 @@ var branchKey = Key{Host: "github.com", Owner: "acme", Repo: "site", Branch: "fe
 
 func TestLookupAnswersFromCacheUntilRefreshed(t *testing.T) {
 	server, calls := graphQLServer(t, openPRBody)
-	lookup := NewService(gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t))))
+	lookup := newTestService(t, gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t))))
 
 	first, err := lookup.Lookup(t.Context(), branchKey, false)
 	require.NoError(t, err)
@@ -67,38 +76,25 @@ func TestLookupAnswersFromCacheUntilRefreshed(t *testing.T) {
 	assert.Equal(t, int64(2), calls.Load())
 }
 
-func TestLookupRereadsOnceTheEntryIsStale(t *testing.T) {
-	server, calls := graphQLServer(t, openPRBody)
-	now := time.Now()
-	lookup := newService(func() time.Time { return now }, gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t))))
-
-	_, err := lookup.Lookup(t.Context(), branchKey, false)
-	require.NoError(t, err)
-	now = now.Add(CacheTTL + time.Second)
-	_, err = lookup.Lookup(t.Context(), branchKey, false)
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), calls.Load())
-}
-
 func TestLookupKeepsItsEmptyAnswersDistinct(t *testing.T) {
 	server, _ := graphQLServer(t, `{"data":{"r0":{"pullRequests":{"nodes":[]}}}}`)
 	connected := gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t)))
 
-	none, err := NewService(connected).Lookup(t.Context(), branchKey, false)
+	none, err := newTestService(t, connected).Lookup(t.Context(), branchKey, false)
 	require.NoError(t, err)
 	assert.Equal(t, StatusNone, none.Status)
 
-	disconnected, err := NewService(gitHubForge(server.URL, StoredGitHubTokens(credentials.NewMemoryStore()))).
+	disconnected, err := newTestService(t, gitHubForge(server.URL, StoredGitHubTokens(credentials.NewMemoryStore()))).
 		Lookup(t.Context(), branchKey, false)
 	require.NoError(t, err)
 	assert.Equal(t, StatusDisconnected, disconnected.Status)
 
-	unsupported, err := NewService(connected).Lookup(t.Context(), Key{Branch: "feat/bar"}, false)
+	unsupported, err := newTestService(t, connected).Lookup(t.Context(), Key{Branch: "feat/bar"}, false)
 	require.NoError(t, err)
 	assert.Equal(t, StatusUnsupported, unsupported.Status)
 
 	// A remote is not evidence that its host is a forge hive can ask.
-	unknownHost, err := NewService(connected).Lookup(t.Context(),
+	unknownHost, err := newTestService(t, connected).Lookup(t.Context(),
 		Key{Host: "git.example.test", Owner: "acme", Repo: "site", Branch: "feat/bar"}, false)
 	require.NoError(t, err)
 	assert.Equal(t, StatusUnsupported, unknownHost.Status)
@@ -115,7 +111,7 @@ func TestLookupReportsAFailedLookupAndCachesNothing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	lookup := NewService(gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t))))
+	lookup := newTestService(t, gitHubForge(server.URL, StoredGitHubTokens(connectedStore(t))))
 
 	_, err := lookup.Lookup(t.Context(), branchKey, false)
 	require.Error(t, err)

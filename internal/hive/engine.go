@@ -53,8 +53,7 @@ type Ports struct {
 	Styler sessionsvc.OutputStyler
 	Stdout io.Writer
 	Stderr io.Writer
-	// Forges answer PullRequests lookups, asked in order. None makes every
-	// lookup unsupported.
+	// Forges answer PullRequests lookups in order.
 	Forges []pullrequest.Forge
 	Logger zerolog.Logger
 }
@@ -127,7 +126,7 @@ func New(cfg *config.Config, p Ports) (*Engine, error) {
 	e := &Engine{
 		ports:        p,
 		hc:           hcsvc.NewService(p.Logger, store.NewHCStore(p.DB)),
-		pullRequests: pullrequest.NewService(p.Forges...),
+		pullRequests: pullrequest.NewService(p.Logger, store.NewKVStore(p.DB), p.Forges...),
 	}
 	built, err := e.build(cfg)
 	if err != nil {
@@ -217,8 +216,7 @@ func (e *Engine) Status() *statussvc.Service { return e.load().status }
 // HC returns the honeycomb service. It reads no config, so Reload keeps it.
 func (e *Engine) HC() *hcsvc.Service { return e.hc }
 
-// PullRequests returns the branch pull request service. It reads no config,
-// so Reload keeps it and its cache.
+// PullRequests reads no config, so Reload keeps it.
 func (e *Engine) PullRequests() *pullrequest.Service { return e.pullRequests }
 
 func (e *Engine) Messages() *msgsvc.Service { return e.load().messages }
