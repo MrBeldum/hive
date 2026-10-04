@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/colonyops/hive/internal/domain/messaging"
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/store/db"
+	"github.com/colonyops/hive/pkg/randid"
 )
 
 // SessionFile is the root JSON structure for sessions.json
@@ -24,114 +26,89 @@ type TopicFile struct {
 	Messages []messaging.Message `json:"messages"`
 }
 
-// MigrateFromJSON migrates data from JSON files to SQLite if conditions are met:
-// - sessions.json exists
-// - Database has no sessions
-// Skips migration if DB already populated to avoid duplicates.
+// MigrateFromJSON imports sessions.json and the per-topic message files into
+// an empty database. It reads and parses every file before it writes, and
+// writes in one transaction, so a failure leaves nothing imported and the next
+// start retries.
 func MigrateFromJSON(ctx context.Context, database *db.DB, dataDir string) error {
 	sessionsPath := filepath.Join(dataDir, "sessions.json")
-	topicsDir := filepath.Join(dataDir, "messages", "topics")
-
-	// Check if sessions.json exists
 	if _, err := os.Stat(sessionsPath); os.IsNotExist(err) {
-		// No JSON files to migrate
 		return nil
 	}
 
-	// Check if database already has sessions
-	sessions, err := database.Queries().ListSessions(ctx)
+	existing, err := database.Queries().ListSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check existing sessions: %w", err)
 	}
-	if len(sessions) > 0 {
-		// Database already populated, skip migration
+	if len(existing) > 0 {
 		return nil
 	}
 
-	// No enclosing transaction: the stores write through the pool, so an
-	// immediate-mode transaction held here would block their writes on a
-	// second connection until busy_timeout.
-	if err := migrateSessions(ctx, database, sessionsPath); err != nil {
+	var sessions SessionFile
+	if err := readJSON(sessionsPath, &sessions); err != nil {
 		return fmt.Errorf("failed to migrate sessions: %w", err)
 	}
-	if err := migrateMessages(ctx, database, topicsDir); err != nil {
+	messages, err := readTopicFiles(filepath.Join(dataDir, "messages", "topics"))
+	if err != nil {
 		return fmt.Errorf("failed to migrate messages: %w", err)
 	}
-	return nil
-}
 
-// migrateSessions loads sessions from JSON and inserts into SQLite.
-func migrateSessions(ctx context.Context, database *db.DB, path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read sessions file: %w", err)
-	}
-
-	var file SessionFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return fmt.Errorf("failed to parse sessions file: %w", err)
-	}
-
-	// Create session store and save each session
-	store := NewSessionStore(database)
-	for _, sess := range file.Sessions {
-		if err := store.Save(ctx, sess); err != nil {
-			return fmt.Errorf("failed to save session %s: %w", sess.ID, err)
+	return database.WithTx(ctx, func(q *db.Queries) error {
+		for _, sess := range sessions.Sessions {
+			if err := saveSession(ctx, q, sess); err != nil {
+				return fmt.Errorf("failed to save session %s: %w", sess.ID, err)
+			}
 		}
-	}
-
-	return nil
+		for _, msg := range messages {
+			if msg.CreatedAt.IsZero() {
+				msg.CreatedAt = time.Now()
+			}
+			err := q.PublishMessage(ctx, db.PublishMessageParams{
+				ID:        randid.Generate(8),
+				Topic:     msg.Topic,
+				Payload:   msg.Payload,
+				Sender:    toNullString(msg.Sender),
+				SessionID: toNullString(msg.SessionID),
+				CreatedAt: msg.CreatedAt.UnixNano(),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to migrate message %s: %w", msg.ID, err)
+			}
+		}
+		return nil
+	})
 }
 
-// migrateMessages loads messages from per-topic JSON files and inserts into SQLite.
-func migrateMessages(ctx context.Context, database *db.DB, topicsDir string) error {
-	// Check if topics directory exists
-	if _, err := os.Stat(topicsDir); os.IsNotExist(err) {
-		// No messages to migrate
-		return nil
-	}
-
-	// Read all topic files
+func readTopicFiles(topicsDir string) ([]messaging.Message, error) {
 	entries, err := os.ReadDir(topicsDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return fmt.Errorf("failed to read topics directory: %w", err)
+		return nil, fmt.Errorf("failed to read topics directory: %w", err)
 	}
 
-	// Create message store (no retention during migration)
-	store := NewMessageStore(database, 0)
-
+	var messages []messaging.Message
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-
-		topicPath := filepath.Join(topicsDir, entry.Name())
-		if err := migrateTopicFile(ctx, store, topicPath); err != nil {
-			return fmt.Errorf("failed to migrate topic file %s: %w", entry.Name(), err)
+		var file TopicFile
+		if err := readJSON(filepath.Join(topicsDir, entry.Name()), &file); err != nil {
+			return nil, fmt.Errorf("topic file %s: %w", entry.Name(), err)
 		}
+		messages = append(messages, file.Messages...)
 	}
-
-	return nil
+	return messages, nil
 }
 
-// migrateTopicFile loads a single topic file and inserts messages.
-func migrateTopicFile(ctx context.Context, store *MessageStore, path string) error {
+func readJSON(path string, dest any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to read topic file: %w", err)
+		return fmt.Errorf("read %s: %w", path, err)
 	}
-
-	var file TopicFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return fmt.Errorf("failed to parse topic file: %w", err)
+	if err := json.Unmarshal(data, dest); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
 	}
-
-	// Insert all messages
-	for _, msg := range file.Messages {
-		if _, err := store.Publish(ctx, msg, []string{msg.Topic}); err != nil {
-			return fmt.Errorf("failed to publish message %s: %w", msg.ID, err)
-		}
-	}
-
 	return nil
 }

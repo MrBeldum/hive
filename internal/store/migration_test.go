@@ -281,3 +281,29 @@ func TestMigrateFromJSON_InvalidJSON(t *testing.T) {
 	// Migration should fail
 	assert.Error(t, MigrateFromJSON(ctx, database, tempDir), "Expected migration to fail with invalid JSON")
 }
+
+// A failure after the sessions parse must leave nothing imported: a partial
+// import would make the next start skip the migration for good.
+func TestMigrateFromJSON_FailureImportsNothing(t *testing.T) {
+	tempDir := t.TempDir()
+	ctx := context.Background()
+
+	data, err := json.Marshal(SessionFile{Sessions: []session.Session{
+		{ID: "s1", Name: "one", Slug: "one", Path: "/tmp/one", State: session.StateActive},
+	}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "sessions.json"), data, 0o644))
+	topicsDir := filepath.Join(tempDir, "messages", "topics")
+	require.NoError(t, os.MkdirAll(topicsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(topicsDir, "broken.json"), []byte("{"), 0o644))
+
+	database, err := db.Open(tempDir, db.DefaultOpenOptions())
+	require.NoError(t, err)
+	defer func() { _ = database.Close() }()
+
+	require.Error(t, MigrateFromJSON(ctx, database, tempDir))
+
+	sessions, err := NewSessionStore(database).List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, sessions)
+}

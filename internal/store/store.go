@@ -64,6 +64,10 @@ func (s *SessionStore) Get(ctx context.Context, id string) (session.Session, err
 
 // Save creates or updates a session.
 func (s *SessionStore) Save(ctx context.Context, sess session.Session) error {
+	return saveSession(ctx, s.db.Queries(), sess)
+}
+
+func saveSession(ctx context.Context, q *db.Queries, sess session.Session) error {
 	// Marshal metadata to JSON
 	var metadataJSON sql.NullString
 	if len(sess.Metadata) > 0 {
@@ -89,7 +93,7 @@ func (s *SessionStore) Save(ctx context.Context, sess session.Session) error {
 		strategy = session.CloneStrategyFull
 	}
 
-	err := s.db.Queries().SaveSession(ctx, db.SaveSessionParams{
+	err := q.SaveSession(ctx, db.SaveSessionParams{
 		ID:            sess.ID,
 		Name:          sess.Name,
 		Slug:          sess.Slug,
