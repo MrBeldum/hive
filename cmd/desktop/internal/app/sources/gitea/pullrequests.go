@@ -2,15 +2,18 @@ package gitea
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/gitea/giteaclient"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/giteaclient"
 )
 
 // PullRequests resolves a session branch's pull request on whichever connected
-// instance serves the remote's host.
+// instance serves the remote's host. It is the engine's pullrequest.Forge for
+// Gitea and Forgejo.
 //
 // Which instance that is only the connected accounts can say: a remote names a
 // host, and nothing about a host identifies it as Gitea until an account
@@ -29,6 +32,30 @@ func NewPullRequests(instances *InstanceStore, creds credentials.Store, fetchers
 // Serves reports whether any connected account's instance answers for host.
 func (p *PullRequests) Serves(host string) bool {
 	return len(p.accounts(host)) > 0
+}
+
+// PullRequest answers the engine's pull request lookup for a session on a
+// connected instance.
+func (p *PullRequests) PullRequest(ctx context.Context, key pullrequest.Key) (pullrequest.PullRequest, error) {
+	pull, found, err := p.ForBranch(ctx, key.Host, key.Owner, key.Repo, key.Branch)
+	if err != nil {
+		return pullrequest.PullRequest{}, fmt.Errorf("reading the pull request for %s: %w", key.Branch, err)
+	}
+	if !found {
+		return pullrequest.PullRequest{Status: pullrequest.StatusNone}, nil
+	}
+	return pullrequest.PullRequest{
+		Status:         pullrequest.StatusFound,
+		Number:         pull.Number,
+		Title:          pull.Title,
+		State:          pull.State,
+		IsDraft:        pull.IsDraft,
+		URL:            pull.URL,
+		ReviewDecision: pull.ReviewDecision,
+		Checks:         string(pull.Checks),
+		Additions:      pull.Additions,
+		Deletions:      pull.Deletions,
+	}, nil
 }
 
 // ForBranch resolves the branch's pull request on the first connected account

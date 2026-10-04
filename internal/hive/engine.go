@@ -21,6 +21,7 @@ import (
 	"github.com/colonyops/hive/internal/hive/gitstatus"
 	hcsvc "github.com/colonyops/hive/internal/hive/hc"
 	msgsvc "github.com/colonyops/hive/internal/hive/messaging"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 	"github.com/colonyops/hive/internal/hive/repocontext"
 	sessionsvc "github.com/colonyops/hive/internal/hive/session"
 	"github.com/colonyops/hive/internal/hive/session/scripts"
@@ -52,6 +53,9 @@ type Ports struct {
 	Styler sessionsvc.OutputStyler
 	Stdout io.Writer
 	Stderr io.Writer
+	// Forges answer PullRequests lookups, asked in order. None makes every
+	// lookup unsupported.
+	Forges []pullrequest.Forge
 	Logger zerolog.Logger
 }
 
@@ -74,10 +78,11 @@ type services struct {
 // current config. Fetch a service per call (e.Sessions().X) and do not hold
 // it across a Reload, or it keeps serving the old config.
 type Engine struct {
-	ports    Ports
-	hc       *hcsvc.Service
-	reloadMu sync.Mutex
-	current  atomic.Pointer[services]
+	ports        Ports
+	hc           *hcsvc.Service
+	pullRequests *pullrequest.Service
+	reloadMu     sync.Mutex
+	current      atomic.Pointer[services]
 }
 
 // OpenDB opens hive.db in dataDir and imports the JSON stores that predate
@@ -120,8 +125,9 @@ func New(cfg *config.Config, p Ports) (*Engine, error) {
 	}
 
 	e := &Engine{
-		ports: p,
-		hc:    hcsvc.NewService(p.Logger, store.NewHCStore(p.DB)),
+		ports:        p,
+		hc:           hcsvc.NewService(p.Logger, store.NewHCStore(p.DB)),
+		pullRequests: pullrequest.NewService(p.Forges...),
 	}
 	built, err := e.build(cfg)
 	if err != nil {
@@ -135,8 +141,8 @@ func New(cfg *config.Config, p Ports) (*Engine, error) {
 // config that fails validation changes nothing: the running services keep
 // serving the config they were built from.
 //
-// The database, the bus and the honeycomb service are kept, so a changed
-// database section or data dir still needs a restart.
+// The database, the bus, and the honeycomb and pull request services are
+// kept, so a changed database section or data dir still needs a restart.
 func (e *Engine) Reload(cfg *config.Config) error {
 	e.reloadMu.Lock()
 	defer e.reloadMu.Unlock()
@@ -210,6 +216,10 @@ func (e *Engine) Status() *statussvc.Service { return e.load().status }
 
 // HC returns the honeycomb service. It reads no config, so Reload keeps it.
 func (e *Engine) HC() *hcsvc.Service { return e.hc }
+
+// PullRequests returns the branch pull request service. It reads no config,
+// so Reload keeps it and its cache.
+func (e *Engine) PullRequests() *pullrequest.Service { return e.pullRequests }
 
 func (e *Engine) Messages() *msgsvc.Service { return e.load().messages }
 

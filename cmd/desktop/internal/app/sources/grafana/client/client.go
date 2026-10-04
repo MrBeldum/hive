@@ -1,7 +1,7 @@
 // Package client is the desktop's Grafana HTTP client: token validation, a
 // PromQL query through the datasource proxy, the firing-alerts list, and the
 // IRM/OnCall alert groups. HTTP plumbing (failure taxonomy, rate-limit
-// mapping, logging) comes from sources/sourcehttp.
+// mapping, logging) comes from platform/sourcehttp.
 package client
 
 import (
@@ -13,7 +13,7 @@ import (
 	"github.com/hay-kot/appkit/httpclient"
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const sourceName = "grafana"

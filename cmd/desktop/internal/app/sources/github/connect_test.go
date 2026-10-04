@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ghsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // connectAPIServer fakes the two GitHub endpoints the live connection

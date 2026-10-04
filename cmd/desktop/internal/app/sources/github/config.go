@@ -6,13 +6,14 @@ import (
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/connector"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // Provider is the credentials provider name every GitHub credential is filed
 // under. A ref is "github/<login>": the account half is the authenticated
 // user's login, which the single-slot token store it replaced — pinned to one
 // constant keychain account — had no room to express.
-const Provider = "github"
+const Provider = ghclient.Provider
 
 // The two fetch shapes a GitHub source can take. A search source runs a
 // query; a notifications source drains the authenticated user's inbox.

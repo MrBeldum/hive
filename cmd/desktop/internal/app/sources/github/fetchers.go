@@ -8,8 +8,8 @@ import (
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/activity"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/feed"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // Fetchers hands out one feed.LiveProvider per credential, constructing them

@@ -10,8 +10,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/grafana/client"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 // defaultCooldown applies when a rate-limit response carried no reset time.

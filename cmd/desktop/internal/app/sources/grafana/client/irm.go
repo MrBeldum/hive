@@ -9,7 +9,7 @@ import (
 
 	"github.com/hay-kot/appkit/httpclient"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const irmSourceName = "grafana-irm"

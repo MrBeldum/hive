@@ -14,6 +14,7 @@ import (
 	"github.com/colonyops/hive/internal/domain/hc"
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/hive/gitstatus"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 )
 
 func jsonKeys(t *testing.T, v any) []string {
@@ -53,8 +54,8 @@ func TestFrontendTypesKeepTheirFieldNames(t *testing.T) {
 		{"SessionStatusSnapshot", app.SessionStatusSnapshot{}, sorted("items", "pollIntervalMs")},
 		{"ItemSessionView", app.ItemSessionView{}, sorted("id", "name", "slug", "repo", "state", "running", "createdAt")},
 		{"ItemChatView", app.ItemChatView{}, sorted("id", "workspace", "name", "createdAt")},
-		{"SessionPullRequestKey", app.SessionPullRequestKey{}, sorted("host", "owner", "repo", "branch")},
-		{"SessionPullRequest", app.SessionPullRequest{}, sorted("status", "number", "title", "state", "isDraft", "url", "reviewDecision", "checks", "additions", "deletions", "cached")},
+		{"pullrequest.Key", pullrequest.Key{}, sorted("host", "owner", "repo", "branch")},
+		{"pullrequest.PullRequest", pullrequest.PullRequest{}, sorted("status", "number", "title", "state", "isDraft", "url", "reviewDecision", "checks", "additions", "deletions", "cached")},
 		{"SessionLaunchRepository", dispatch.SessionLaunchRepository{}, sorted("name", "repository")},
 		{"SessionLaunchWorkspace", dispatch.SessionLaunchWorkspace{}, sorted("dir", "name", "supportsPrompt")},
 		{"SessionLaunchOptions", dispatch.SessionLaunchOptions{}, sorted("repositories", "defaultRepository", "workspaces", "agents", "defaultAgent")},

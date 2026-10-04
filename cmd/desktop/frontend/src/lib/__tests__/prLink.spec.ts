@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { markdownPullRequestLink } from '../prLink'
-import type { SessionPullRequest } from '../../../bindings/github.com/colonyops/hive/cmd/desktop/internal/app/models'
+import type { PullRequest as SessionPullRequest } from '../../../bindings/github.com/colonyops/hive/internal/hive/pullrequest/models'
 
 function pullRequest(overrides: Partial<SessionPullRequest> = {}): SessionPullRequest {
   return {

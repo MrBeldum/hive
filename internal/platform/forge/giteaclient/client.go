@@ -1,4 +1,4 @@
-// Package giteaclient is the desktop's Gitea/Forgejo REST client: token
+// Package giteaclient is hive's Gitea/Forgejo REST client: token
 // validation, the issue/PR search, the notification inbox, and the single-issue
 // lookup absence confirmation needs. It owns no feed concepts — caching,
 // cadence and item shaping live in cmd/desktop/internal/app/sources/gitea — and no
@@ -6,7 +6,7 @@
 // host and token.
 //
 // HTTP plumbing — the failure taxonomy, status mapping, request logging —
-// comes from sources/sourcehttp.
+// comes from platform/sourcehttp.
 package giteaclient
 
 import (
@@ -22,7 +22,7 @@ import (
 	"github.com/hay-kot/appkit/httpclient"
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const (

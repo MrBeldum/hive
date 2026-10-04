@@ -39,7 +39,6 @@ import (
 	execsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/exec"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/gitea"
 	ghsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/grafana"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/posthog"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/rss"
@@ -50,9 +49,11 @@ import (
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/hive"
 	hiveevents "github.com/colonyops/hive/internal/hive/events"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 	"github.com/colonyops/hive/internal/hive/session/scripts"
 	"github.com/colonyops/hive/internal/platform/credentials"
 	"github.com/colonyops/hive/internal/platform/execenv"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 	tmuxbin "github.com/colonyops/hive/internal/platform/tmux/bin"
 	tmuxcc "github.com/colonyops/hive/internal/platform/tmux/control"
 	tmuxexec "github.com/colonyops/hive/internal/platform/tmux/exec"
@@ -343,7 +344,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Binary:  func() (string, error) { return a.resolveTmuxBinary(runCtx) },
 		Environ: a.execEnv.Environ,
 	})
-	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
+	giteaInstances := gitea.NewInstanceStore(filepath.Join(cfg.Paths.StateDir, "gitea-instances.json"))
+	a.giteaFetchers = gitea.NewFetchers(giteaInstances, a.credentials, cfg.Logger)
+	forges := []pullrequest.Forge{
+		pullrequest.NewGitHubForge(gitHubClient, pullrequest.StoredGitHubTokens(a.credentials)),
+		gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers),
+	}
+	if err := a.openHiveRuntime(runCtx, cfg, forges); err != nil {
 		_ = a.db.Close()
 		cancel()
 		return nil, err
@@ -396,8 +403,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	// Gitea binds a host to the account at connect time, the same shape again,
 	// so its registry and binding store are likewise always wired.
-	giteaInstances := gitea.NewInstanceStore(filepath.Join(cfg.Paths.StateDir, "gitea-instances.json"))
-	a.giteaFetchers = gitea.NewFetchers(giteaInstances, a.credentials, cfg.Logger)
 	a.giteaAuth = gitea.NewAuthenticator(a.credentials, giteaInstances, cfg.Logger, func(credentials.Ref) {
 		a.giteaFetchers.InvalidateAll()
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: gitea.Provider})
@@ -497,10 +502,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		AgentWindows: a.terminals, AgentCommands: a.profileCommands,
 		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
 		Recorder: a.Activity, Events: a.Events, Logger: cfg.Logger,
-		PullRequests: newSessionPullRequests(
-			newGitHubForge(gitHubClient, a.credentials),
-			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
-		),
 		ExecEnv:         a.execEnv,
 		EditorCommand:   a.Settings,
 		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
@@ -1200,7 +1201,7 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 // subscribers already hold, buys nothing a config edit needs.
 // Everything the hive config decides is the engine's to rebuild, which
 // ReloadHiveRuntime asks it to (ADR the-hive-runtime-rebinds-on-a-config-write-instead-of-requiring-a-restart).
-func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
+func (a *App) openHiveRuntime(ctx context.Context, cfg Config, forges []pullrequest.Forge) error {
 	dataDir := cfg.Paths.HiveDataDir
 	if dataDir == "" {
 		dataDir = cfg.Paths.DataDir
@@ -1237,6 +1238,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		Executor: newEnvExecutor(a.execEnv),
 		Mux:      hiveMultiplexer{Client: tmuxClient, renamer: a.terminals},
 		DataDir:  dataDir,
+		Forges:   forges,
 		Logger:   a.logger,
 	}
 	// Mock modes have no tmux to read, so status stays off.

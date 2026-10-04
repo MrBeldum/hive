@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/gitea/giteaclient"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/itemtext"
+	"github.com/colonyops/hive/internal/platform/forge/giteaclient"
 )
 
 // branchPrefix identifies Gitea in a suggested branch name. Forgejo items use

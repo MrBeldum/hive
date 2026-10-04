@@ -16,13 +16,13 @@ import (
 	execsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/exec"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/gitea"
 	ghsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github"
-	ghclient "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/grafana"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/posthog"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/rss"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/webhook"
 	"github.com/colonyops/hive/internal/platform/credentials"
 	"github.com/colonyops/hive/internal/platform/execenv"
+	ghclient "github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // testFetchers builds the per-account fetcher registry without touching the

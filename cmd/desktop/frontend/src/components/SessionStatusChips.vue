@@ -15,7 +15,7 @@ import IconButton from './ui/IconButton.vue'
 import { useClipboard } from '../composables/useClipboard'
 import { markdownPullRequestLink } from '../lib/prLink'
 import type { SessionGitStatus } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapter/wailsui/models'
-import type { SessionPullRequest } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/app/models'
+import type { PullRequest as SessionPullRequest } from '../../bindings/github.com/colonyops/hive/internal/hive/pullrequest/models'
 
 const props = defineProps<{
   git: SessionGitStatus | null

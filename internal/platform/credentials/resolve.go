@@ -90,3 +90,26 @@ func ListProvider(store Store, provider string) ([]Ref, error) {
 	}
 	return out, nil
 }
+
+// ProviderValues resolves every stored account of one provider, for a caller
+// that tries each in turn. The environment override names no account, so with
+// nothing stored a synthetic ref stands in to give Resolve something
+// well-formed to answer it with. A ref that resolves to nothing is skipped.
+func ProviderValues(store Store, provider string) ([]string, error) {
+	refs, err := ListProvider(store, provider)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 && HasEnvOverride(provider) {
+		refs = []Ref{{Provider: provider, Account: "env"}}
+	}
+	values := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		value, err := Resolve(store, ref)
+		if err != nil || value == "" {
+			continue
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}

@@ -18,8 +18,8 @@ import (
 	"github.com/colonyops/hive/cmd/desktop/internal/app/settings"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/connector"
 	ghsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github"
-	ghclient "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	ghclient "github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // TestNewSettingsServiceReadsNotifications proves the adapter-facing

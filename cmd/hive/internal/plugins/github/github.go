@@ -3,7 +3,6 @@ package github
 
 import (
 	"context"
-	"encoding/json"
 	"os/exec"
 	"sync"
 	"time"
@@ -16,20 +15,34 @@ import (
 	"github.com/colonyops/hive/cmd/hive/internal/plugins/pluglib"
 	"github.com/colonyops/hive/internal/domain/kv"
 	"github.com/colonyops/hive/internal/domain/session"
+	"github.com/colonyops/hive/internal/hive/gitstatus"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
+	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
+
+// Deps are the engine pieces the status provider reads through.
+type Deps struct {
+	PullRequests *pullrequest.Service
+	Branch       func(ctx context.Context, dir string) (string, error)
+	// Credentials is read only to report availability.
+	Credentials credentials.Store
+}
 
 // Plugin implements the GitHub plugin for Hive.
 type Plugin struct {
-	cfg   config.GitHubPluginConfig
-	cache *kv.Cache[prInfo]
+	logger zerolog.Logger
+	cfg    config.GitHubPluginConfig
+	deps   Deps
+	cache  *kv.Cache[prInfo]
 }
 
 // New creates a new GitHub plugin.
 // If kvStore is non-nil, PR status is cached in the persistent KV store.
-func New(logger zerolog.Logger, cfg config.GitHubPluginConfig, kvStore kv.KV) *Plugin {
-	p := &Plugin{cfg: cfg}
+func New(logger zerolog.Logger, cfg config.GitHubPluginConfig, kvStore kv.KV, deps Deps) *Plugin {
+	p := &Plugin{logger: logutils.Component(logger, "plugins.github"), cfg: cfg, deps: deps}
 	if kvStore != nil {
-		p.cache = kv.NewCache[prInfo](logutils.Component(logger, "plugins.github"), kvStore, "github.pr", p.StatusCacheDuration())
+		p.cache = kv.NewCache[prInfo](p.logger, kvStore, "github.pr", p.StatusCacheDuration())
 	}
 	return p
 }
@@ -37,11 +50,17 @@ func New(logger zerolog.Logger, cfg config.GitHubPluginConfig, kvStore kv.KV) *P
 func (p *Plugin) Name() string { return "github" }
 
 func (p *Plugin) Available() bool {
-	// Check if user explicitly disabled
 	if p.cfg.Enabled != nil && !*p.cfg.Enabled {
 		return false
 	}
-	// Auto-detect: check if gh CLI is available
+	if credentials.HasEnvOverride(ghclient.Provider) {
+		return true
+	}
+	if p.deps.Credentials != nil {
+		if refs, err := credentials.ListProvider(p.deps.Credentials, ghclient.Provider); err == nil && len(refs) > 0 {
+			return true
+		}
+	}
 	_, err := exec.LookPath("gh")
 	return err == nil
 }
@@ -62,7 +81,8 @@ func (p *Plugin) StatusProvider() plugins.StatusProvider {
 	return p
 }
 
-// prInfo represents GitHub PR information from gh CLI.
+// prInfo is the cached part of a pull request. Its shape predates the engine
+// service and matches what is already in the kv store.
 type prInfo struct {
 	Number  int    `json:"number"`
 	State   string `json:"state"`
@@ -79,8 +99,7 @@ func (p *Plugin) RefreshStatus(ctx context.Context, sessions []*session.Session,
 		go func(s *session.Session) {
 			defer wg.Done()
 			pool.Run(func() {
-				info := p.fetchPRInfo(ctx, s.ID, s.Path)
-				status := infoToStatus(info)
+				status := infoToStatus(p.fetchPRInfo(ctx, s))
 				if status.Label != "" {
 					mu.Lock()
 					results[s.ID] = status
@@ -94,37 +113,46 @@ func (p *Plugin) RefreshStatus(ctx context.Context, sessions []*session.Session,
 	return results, nil
 }
 
-// fetchPRInfo returns PR info, checking the cache first. Empty results
-// are cached too, to avoid repeated gh calls for sessions without a PR.
-func (p *Plugin) fetchPRInfo(ctx context.Context, sessionID, path string) prInfo {
+// fetchPRInfo returns PR info, checking the cache first. A branch with no pull
+// request is cached; a failed lookup is not, so the next refresh retries.
+func (p *Plugin) fetchPRInfo(ctx context.Context, s *session.Session) prInfo {
 	if p.cache != nil {
-		if cached, ok := p.cache.Get(ctx, sessionID); ok {
+		if cached, ok := p.cache.Get(ctx, s.ID); ok {
 			return cached
 		}
 	}
 
-	info := p.fetchFromGH(ctx, path)
+	info, err := p.lookup(ctx, s)
+	if err != nil {
+		p.logger.Debug().Err(err).Str("session", s.ID).Msg("pull request lookup failed")
+		return prInfo{}
+	}
 
 	if p.cache != nil {
-		p.cache.Set(ctx, sessionID, info)
+		p.cache.Set(ctx, s.ID, info)
 	}
 	return info
 }
 
-func (p *Plugin) fetchFromGH(ctx context.Context, path string) prInfo {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", "--json", "number,state,isDraft")
-	cmd.Dir = path
-	output, err := cmd.Output()
+func (p *Plugin) lookup(ctx context.Context, s *session.Session) (prInfo, error) {
+	if p.deps.PullRequests == nil || p.deps.Branch == nil {
+		return prInfo{}, nil
+	}
+	branch, err := p.deps.Branch(ctx, s.Path)
 	if err != nil {
-		return prInfo{}
+		return prInfo{}, err
 	}
-
-	var info prInfo
-	if err := json.Unmarshal(output, &info); err != nil {
-		return prInfo{}
+	host, owner, repo := gitstatus.RemoteCoordinates(s.Remote)
+	// The plugin keeps its own cache with the configured duration, so the
+	// service's cache is bypassed.
+	pr, err := p.deps.PullRequests.Lookup(ctx, pullrequest.Key{Host: host, Owner: owner, Repo: repo, Branch: branch}, true)
+	if err != nil {
+		return prInfo{}, err
 	}
-
-	return info
+	if pr.Status != pullrequest.StatusFound {
+		return prInfo{}, nil
+	}
+	return prInfo{Number: pr.Number, State: pr.State, IsDraft: pr.IsDraft}, nil
 }
 
 func infoToStatus(info prInfo) plugins.Status {

@@ -14,7 +14,7 @@ import (
 	"github.com/mmcdole/gofeed"
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 // sourceName identifies this connector in sourcehttp's log lines, client spans

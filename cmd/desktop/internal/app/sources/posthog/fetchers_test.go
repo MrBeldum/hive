@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/posthog/client"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const testProjectID = 42

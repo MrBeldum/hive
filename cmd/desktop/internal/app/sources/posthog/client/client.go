@@ -1,7 +1,7 @@
 // Package client is the desktop's PostHog HTTP client: project listing (which
 // doubles as token validation), the error-tracking issue query, and the
 // insight-alert list. HTTP plumbing (failure taxonomy, rate-limit mapping,
-// logging) comes from sources/sourcehttp.
+// logging) comes from platform/sourcehttp.
 package client
 
 import (
@@ -14,7 +14,7 @@ import (
 	"github.com/hay-kot/appkit/httpclient"
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const sourceName = "posthog"

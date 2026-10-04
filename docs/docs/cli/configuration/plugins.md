@@ -71,12 +71,12 @@ keybindings:
 
 ## GitHub Plugin
 
-The GitHub plugin provides PR status display and GitHub CLI commands. Auto-detected when `gh` CLI is installed.
+The GitHub plugin provides PR status display and GitHub CLI commands. It is enabled when `gh` is installed, `HIVE_GITHUB_TOKEN` is set, or a GitHub account is connected in Hive Desktop.
 
 ```yaml
 plugins:
   github:
-    enabled: true # auto-detected (requires `gh` CLI)
+    enabled: true # auto-detected
     results_cache: 8m # how often to refresh PR status (default: 8m)
 ```
 
@@ -89,9 +89,15 @@ plugins:
 | `GithubPRStatus` | Show PR status (popup)     | —           |
 | `GithubPRCreate` | Create PR in browser       | —           |
 
+The commands run `gh`, so they need it installed.
+
 ### Status Display
 
-Sessions with an associated PR show a status indicator:
+Sessions with an associated PR show a status indicator. hive reads PR status from the GitHub API for sessions whose remote is on `github.com`. It uses the first token it finds:
+
+1. `HIVE_GITHUB_TOKEN`
+2. The GitHub accounts connected in Hive Desktop. On macOS the first read can ask for keychain access.
+3. Your `gh` login (`gh auth token`)
 
 | Label       | Color   | Meaning       |
 | ----------- | ------- | ------------- |

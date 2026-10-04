@@ -20,6 +20,9 @@ import * as actions$0 from "../../app/actions/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as dispatch$0 from "../../app/dispatch/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as pullrequest$0 from "../../../../../internal/hive/pullrequest/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -177,7 +180,7 @@ export function SessionLaunchWorkspaces(): $CancellablePromise<dispatch$0.Sessio
  * Status field says why there is nothing to show, so a caller never has to
  * read an empty result as "none".
  */
-export function SessionPullRequest(key: app$0.SessionPullRequestKey, refresh: boolean): $CancellablePromise<app$0.SessionPullRequest> {
+export function SessionPullRequest(key: pullrequest$0.Key, refresh: boolean): $CancellablePromise<pullrequest$0.PullRequest> {
     return $Call.ByID(1543770423, key, refresh);
 }
 

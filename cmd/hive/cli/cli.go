@@ -32,7 +32,10 @@ import (
 	"github.com/colonyops/hive/internal/hive"
 	"github.com/colonyops/hive/internal/hive/doctor"
 	"github.com/colonyops/hive/internal/hive/events"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 	"github.com/colonyops/hive/internal/hive/session/scripts"
+	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 	tmuxexec "github.com/colonyops/hive/internal/platform/tmux/exec"
 	"github.com/colonyops/hive/internal/store"
 	"github.com/colonyops/hive/internal/store/db"
@@ -239,6 +242,10 @@ Run 'hive new' to create a new session from the current repository.`,
 
 			exec := &executil.RealExecutor{}
 			tmuxClient := tmuxexec.NewDefault(logger)
+			creds := credentials.NewKeychainStore(credentials.IndexPath(hiveconfig.DefaultDataDir()))
+			gitHubTokens := pullrequest.GitHubTokensWithCLIFallback(logger, creds, func(ctx context.Context) (string, error) {
+				return ghclient.CLIToken(ctx, exec)
+			})
 			engine, err := hive.New(&cfg.Config, hive.Ports{
 				DB:         database,
 				Bus:        bus,
@@ -249,7 +256,10 @@ Run 'hive new' to create a new session from the current repository.`,
 				Styler:     styles.CLIOutputStyler{},
 				Stdout:     os.Stdout,
 				Stderr:     os.Stderr,
-				Logger:     logger,
+				Forges: []pullrequest.Forge{
+					pullrequest.NewGitHubForge(ghclient.NewClient(ghclient.WithLogger(logger)), gitHubTokens),
+				},
+				Logger: logger,
 			})
 			if err != nil {
 				return ctx, err
@@ -270,7 +280,13 @@ Run 'hive new' to create a new session from the current repository.`,
 			commandSet := plugins.NewCommandSet(config.DefaultUserCommands(), cfg.UserCommands)
 
 			allPlugins := []configuredPlugin{
-				{plugin: github.New(logger, cfg.Plugins.GitHub, kvStore), disabled: isDisabled(cfg.Plugins.GitHub.Enabled)},
+				{plugin: github.New(logger, cfg.Plugins.GitHub, kvStore, github.Deps{
+					PullRequests: engine.PullRequests(),
+					Branch: func(ctx context.Context, dir string) (string, error) {
+						return engine.Git().Branch(ctx, dir)
+					},
+					Credentials: creds,
+				}), disabled: isDisabled(cfg.Plugins.GitHub.Enabled)},
 				{plugin: lazygit.New(cfg.Plugins.LazyGit), disabled: isDisabled(cfg.Plugins.LazyGit.Enabled)},
 				{plugin: neovim.New(cfg.Plugins.Neovim), disabled: isDisabled(cfg.Plugins.Neovim.Enabled)},
 				{plugin: contextdir.New(cfg.Plugins.ContextDir, cfg.DataDir), disabled: isDisabled(cfg.Plugins.ContextDir.Enabled)},

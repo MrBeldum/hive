@@ -33,6 +33,12 @@ type KeychainStore struct {
 	service   string
 }
 
+// IndexPath is where the ref index lives under a Hive Desktop data dir. The
+// hive CLI reads the same index so both programs share connected accounts.
+func IndexPath(dataDir string) string {
+	return filepath.Join(dataDir, "desktop", "credentials.json")
+}
+
 // NewKeychainStore builds a store whose ref index lives at indexPath. The
 // path is a parameter rather than derived from cmd/desktop/internal/app/settings so this
 // package stays a leaf and a test can point it at a temp dir.

@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/internal/config"
+	"github.com/colonyops/hive/internal/platform/credentials"
 	"github.com/colonyops/hive/pkg/pathutil"
 )
 
@@ -142,7 +143,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 		ActionsPath:          actionsPath,
 		AgentWorkspacesDir:   agentWorkspacesDir,
 		SettingsPath:         filepath.Join(configDir, settingsFileName),
-		CredentialsIndexPath: filepath.Join(stateDir, "credentials.json"),
+		CredentialsIndexPath: credentials.IndexPath(dataDir),
 		LogFile:              filepath.Join(stateDir, logFileName),
 		ReportsDir:           filepath.Join(dataDir, "reports"),
 		DataDirOverridden:    dataOverride || b.DataDir != "",

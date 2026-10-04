@@ -6,6 +6,7 @@ import (
 	"github.com/colonyops/hive/cmd/desktop/internal/app"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/actions"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/dispatch"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 )
 
 // SessionService is the frontend API for the New Session form and for managing
@@ -68,7 +69,7 @@ func (s *SessionService) SessionGitStatus(ctx context.Context, id string) (Sessi
 // reported, answering from a short-lived cache unless refresh is set. Its
 // Status field says why there is nothing to show, so a caller never has to
 // read an empty result as "none".
-func (s *SessionService) SessionPullRequest(ctx context.Context, key app.SessionPullRequestKey, refresh bool) (app.SessionPullRequest, error) {
+func (s *SessionService) SessionPullRequest(ctx context.Context, key pullrequest.Key, refresh bool) (pullrequest.PullRequest, error) {
 	return s.sessions.SessionPullRequest(ctx, key, refresh)
 }
 

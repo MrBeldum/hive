@@ -11,9 +11,9 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/gitea/giteaclient"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/giteaclient"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 // defaultCooldown applies when a rate-limited response carried no reset time.

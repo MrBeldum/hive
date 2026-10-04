@@ -1,4 +1,4 @@
-import type { SessionPullRequest } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/app/models'
+import type { PullRequest as SessionPullRequest } from '../../bindings/github.com/colonyops/hive/internal/hive/pullrequest/models'
 
 // Kept byte-identical to the `prlink` shell script this replaces: links already
 // pasted into Slack read a certain way, and formatting that differs by which

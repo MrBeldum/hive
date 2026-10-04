@@ -4,7 +4,7 @@ import {
   SessionPullRequest as ReadPullRequest,
 } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionGitStatus } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapter/wailsui/models'
-import type { SessionPullRequest } from '../../bindings/github.com/colonyops/hive/cmd/desktop/internal/app/models'
+import type { PullRequest as SessionPullRequest } from '../../bindings/github.com/colonyops/hive/internal/hive/pullrequest/models'
 import { useWindowFocus } from '../stores/useWindowFocus'
 
 // Git is four local subprocesses, so it can be polled. The pull request rides

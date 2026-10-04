@@ -23,8 +23,8 @@ import (
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/connector"
 	ghsource "github.com/colonyops/hive/cmd/desktop/internal/app/sources/github"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/feed"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 // testCredential is the account every fixture source fetches as. Sources

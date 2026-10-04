@@ -249,7 +249,7 @@ linters:
       # desktop program and to the drivers that moved out of it into
       # internal/platform. The CLI and the other shared packages keep the set
       # they were written against.
-      - path-except: (^|/)(cmd/desktop|internal/platform/(tmux/(control|bin)|execenv|credentials|secrets|observe))/
+      - path-except: (^|/)(cmd/desktop|internal/platform/(tmux/(control|bin)|execenv|credentials|secrets|observe|forge|sourcehttp))/
         linters: [containedctx, contextcheck, forbidigo, forcetypeassert, interfacebloat, modernize, noctx, sqlclosecheck, usetesting]
       # forbidigo has no per-rule path filter, so the scope of its rules is
       # carved here. The adapter and package main are where application.Get,

@@ -8,7 +8,7 @@ import (
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/data/models"
 	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/feed"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
 )
 
 type terminalConfirmer interface {

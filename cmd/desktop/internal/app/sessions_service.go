@@ -21,6 +21,7 @@ import (
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/hive"
 	"github.com/colonyops/hive/internal/hive/gitstatus"
+	"github.com/colonyops/hive/internal/hive/pullrequest"
 	sessionsvc "github.com/colonyops/hive/internal/hive/session"
 	"github.com/colonyops/hive/internal/platform/execenv"
 	"github.com/colonyops/hive/pkg/osopen"
@@ -122,11 +123,8 @@ type SessionsService struct {
 	catalog           *actions.ActionStore
 	dispatcher        *dispatch.Dispatcher
 	recorder          activity.Recorder
-	// pullRequests is nil in a build with no GitHub client, which reads as
-	// disconnected.
-	pullRequests  *sessionPullRequests
-	execEnv       *execenv.Resolver
-	editorCommand EditorCommandReader
+	execEnv           *execenv.Resolver
+	editorCommand     EditorCommandReader
 	// defaultAgentEnv is never nil: newSessionsService substitutes
 	// NopDefaultAgentReader, so withEnvironmentDefaultAgent never guards it.
 	defaultAgentEnv DefaultAgentReader
@@ -172,7 +170,6 @@ type SessionsDeps struct {
 	Catalog       *actions.ActionStore
 	Dispatcher    *dispatch.Dispatcher
 	Recorder      activity.Recorder
-	PullRequests  *sessionPullRequests
 	ExecEnv       *execenv.Resolver
 	// EditorCommand reads the configured editor from settings on every call,
 	// so a settings change applies without restarting. nil means
@@ -206,7 +203,6 @@ func newSessionsService(d SessionsDeps) *SessionsService {
 		catalog:           d.Catalog,
 		dispatcher:        d.Dispatcher,
 		recorder:          d.Recorder,
-		pullRequests:      d.PullRequests,
 		execEnv:           d.ExecEnv,
 		editorCommand:     d.EditorCommand,
 		defaultAgentEnv:   d.DefaultAgentEnv,
@@ -427,11 +423,12 @@ func (s *SessionsService) SessionGitStatus(ctx context.Context, id string) (gits
 // already reported. The branch is passed rather than read again: resolving it
 // costs a git subprocess the caller has just paid for, and the two halves
 // refresh on different cadences.
-func (s *SessionsService) SessionPullRequest(ctx context.Context, key SessionPullRequestKey, refresh bool) (SessionPullRequest, error) {
-	if s.pullRequests == nil {
-		return SessionPullRequest{Status: PullRequestStatusDisconnected}, nil
+func (s *SessionsService) SessionPullRequest(ctx context.Context, key pullrequest.Key, refresh bool) (pullrequest.PullRequest, error) {
+	pr, err := s.hive.PullRequests().Lookup(ctx, key, refresh)
+	if err != nil {
+		return pullrequest.PullRequest{}, Wrap(err, KindInternal, "looking up the pull request for %s", key.Branch)
 	}
-	return s.pullRequests.Lookup(ctx, key, refresh)
+	return pr, nil
 }
 
 // OpenSessionInEditor launches the configured editor on the session's

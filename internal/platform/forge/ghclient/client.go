@@ -1,4 +1,4 @@
-// Package ghclient is the desktop's own GitHub REST/GraphQL client: in-app
+// Package ghclient is hive's own GitHub REST/GraphQL client: in-app
 // authentication (OAuth device flow, PAT validation via User) and the typed
 // API calls the connector needs (batched search, notifications, single-issue
 // hydration). It owns no feed concepts — caching, polling cadence, and
@@ -7,7 +7,7 @@
 // WithTokenCopy.
 //
 // HTTP plumbing — the failure taxonomy, status mapping, conditional requests,
-// request logging — comes from sources/sourcehttp.
+// request logging — comes from platform/sourcehttp.
 package ghclient
 
 import (
@@ -24,7 +24,7 @@ import (
 	"github.com/hay-kot/appkit/httpclient"
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 const (

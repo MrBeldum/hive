@@ -130,23 +130,6 @@ export interface PopupLauncher {
 }
 
 /**
- * PullRequestStatus is why a session has no pull request to show, or that it
- * does. The four are kept apart deliberately: rendering "no pull request" for
- * a failed lookup or a disconnected account states a different, wrong fact.
- */
-export enum PullRequestStatus {
-    /**
-     * The Go zero value for the underlying type of the enum.
-     */
-    $zero = "",
-
-    PullRequestStatusNone = "none",
-    PullRequestStatusFound = "found",
-    PullRequestStatusDisconnected = "disconnected",
-    PullRequestStatusUnsupported = "unsupported",
-};
-
-/**
  * ScratchTerminal declares the scratch terminal to the surfaces that draw it.
  * There is exactly one, it is created on first use, and it holds no hive
  * session, checkout or agent — its tabs are whatever the user opened.
@@ -154,57 +137,6 @@ export enum PullRequestStatus {
 export interface ScratchTerminal {
     "slug": string;
     "name": string;
-}
-
-/**
- * SessionPullRequest is the branch's pull request as the session status bar
- * shows it. Everything below Status is meaningful only for
- * PullRequestStatusFound.
- */
-export interface SessionPullRequest {
-    "status": PullRequestStatus;
-    "number": number;
-    "title": string;
-    "state": string;
-    "isDraft": boolean;
-    "url": string;
-
-    /**
-     * ReviewDecision is GitHub's own vocabulary (APPROVED, CHANGES_REQUESTED,
-     * REVIEW_REQUIRED), or empty when review is not required.
-     */
-    "reviewDecision": string;
-
-    /**
-     * Checks is passing, pending, failing, or empty for a head commit with no
-     * checks configured.
-     */
-    "checks": string;
-
-    /**
-     * The pull request's own line counts, deliberately not the git status's:
-     * those measure the working tree and drift as the branch moves on.
-     */
-    "additions": number;
-    "deletions": number;
-
-    /**
-     * Cached distinguishes "this just arrived" from "this was already known".
-     * The bar animates only the former.
-     */
-    "cached": boolean;
-}
-
-/**
- * SessionPullRequestKey addresses the pull request a session's branch has.
- * Host decides which forge is asked, so a lookup carries it rather than
- * inferring one from owner and repo, which every forge spells the same.
- */
-export interface SessionPullRequestKey {
-    "host": string;
-    "owner": string;
-    "repo": string;
-    "branch": string;
 }
 
 /**

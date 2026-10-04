@@ -38,9 +38,9 @@ individual choices; this document describes the shape everything fits into.
 > where their dependencies live. The producer reads a capability off the
 > instance instead of type-asserting for it, and `flow`'s node registry and
 > `runtime`'s behaviour registry both derive their source entries from it, so
-> adding a connector is a change to `sources/` alone (ADR source-connector-registry). GitHub's
-> connector owns its HTTP client end to end (`sources/github/ghclient`) rather
-> than sharing a client with the CLI (ADR owned-github-client).
+> adding a connector is a change to `sources/` alone (ADR source-connector-registry). The forge
+> HTTP clients are owned code in `platform/forge` (ADR owned-github-client), and the CLI reads
+> pull request status over the same client (ADR both-programs-read-pull-request-status-through-one-engine-service-over-the-forge-http-clients).
 >
 > Credentials are keyed by account: `platform/credentials` stores a value per
 > `Ref{Provider, Account}` in the OS keychain with a separate index of refs,
@@ -193,7 +193,7 @@ column is the section that specifies it.
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching a **shared `internal/` package** | Shared Kernel — put it in the layer its path names, import only downward, change it with the CLI in mind | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
-| A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
+| A new **outbound HTTP call from a source** | `platform/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
 | A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH, and never a login shell in place of it | [Subprocess environment](#subprocess-environment) |
 | A change to the **external Hive config** | In-place `yaml.Node` edit through `internal/config`'s writer; `hive.Engine.Reload` so the running process sees it | [The external Hive config](#the-external-hive-config) |
 | A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR yaml-config-migration |
@@ -264,7 +264,7 @@ needs no lint edit:
 | --- | --- | --- | --- | --- |
 | Kit | `pkg/` | Hive-agnostic helpers: `atomicfile`, `executil`, `pathutil`, `tmpl`, `buildinfo` | stdlib, third party except charm and Wails | `kit-is-hive-agnostic` |
 | Domain | `internal/domain/` | Models, rules, enums, sentinel errors, and the ports the engine needs. No I/O, no config | `pkg/`, other `domain/*` | `domain-is-pure` |
-| Platform | `internal/platform/` | Drivers for one outside system each: git, tmux, SQLite, process inspection, the login-shell environment, credentials, secrets, the OTel API | `pkg/`, `domain/`, other `platform/*` | `platform-is-a-driver` |
+| Platform | `internal/platform/` | Drivers for one outside system each: git, tmux, SQLite, process inspection, the login-shell environment, credentials, secrets, the forge HTTP clients, the OTel API | `pkg/`, `domain/`, other `platform/*` | `platform-is-a-driver` |
 | Store | `internal/store/` | `hive.db`: sqlc output, migrations, one store per aggregate | `pkg/`, `domain/`, `platform/sqlite` | `store-is-persistence` |
 | Config | `internal/config/` | The engine sections of `config.yaml`: load, validate, the comment-preserving writer | `pkg/`, `domain/` | `config-is-data` |
 | Engine | `internal/hive/` | One subpackage per application service, the event bus, and `hive.Engine`, which composes them | everything above | |
@@ -368,8 +368,6 @@ cmd/desktop/internal/
       registry.go                 #   the map of descriptors, in one file
       connector/                  #   the vocabulary — a leaf, so a connector can
                                   #   name it without importing the registry back
-      sourcehttp/                 #   the HTTP toolkit every source client is
-                                  #   built over — a lighter leaf (ADR source-http-toolkit)
       itemtext/                   #   branch names and launch prompts derived from
                                   #   an item — a leaf, so every forge connector
                                   #   shares one convention without importing
@@ -380,9 +378,8 @@ cmd/desktop/internal/
       github/                     #   Descriptor + Config + Factory
         feed/                     #   fetch layer: per-account response cache,
                                   #   conditional requests, rate-limit cooldown
-        ghclient/                 #   the owned GitHub HTTP client (ADR owned-github-client)
-      gitea/                      #   Descriptor + Config + Factory; Gitea and Forgejo
-        giteaclient/              #   the owned Gitea HTTP client
+      gitea/                      #   Descriptor + Config + Factory; Gitea and Forgejo;
+                                  #   also the engine's pull request forge for them
       webhook/                    #   Descriptor + Config + Factory; local ingress
     ingest/                       # producer loop, classification, absence, snapshots
     hivewatch/                    # the poller for hive.db state another process writes
@@ -498,6 +495,10 @@ internal/                         # the hive engine both programs run on (see
                                   #   plus the shell's other variables where
                                   #   this process defines none (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path)
     credentials/                  #   Ref{Provider, Account}, Store, keychain, index
+    forge/                        #   the owned forge HTTP clients: ghclient/
+                                  #   (ADR owned-github-client), giteaclient/
+    sourcehttp/                   #   the HTTP toolkit every source client is
+                                  #   built over (ADR source-http-toolkit)
     secrets/                      #   config holds a reference (env:, file:,
                                   #   op://) and this resolves it; a literal is
                                   #   rejected (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources)
@@ -520,6 +521,8 @@ internal/                         # the hive engine both programs run on (see
     session/  status/  hc/        #   one subpackage per application service
     messaging/  repocontext/
     todo/  gitstatus/  doctor/
+    pullrequest/                  #   a branch's pull request over the forges
+                                  #   a program hands the engine
   releasenotes/                   # release tooling, outside the layers: the
                                   #   changelog parser each program's embed feeds:
                                   #   <version>.md per release, unreleased/ one file
@@ -1179,7 +1182,7 @@ or a profile type updates the panel that reads it.
 
 ### Source HTTP
 
-**Every source client is built over `sources/sourcehttp`** (ADR source-http-toolkit), which
+**Every source client is built over `platform/sourcehttp`** (ADR source-http-toolkit), which
 is itself built over `appkit/httpclient`. Nothing constructs a bespoke
 `*http.Client` to reach a provider API.
 

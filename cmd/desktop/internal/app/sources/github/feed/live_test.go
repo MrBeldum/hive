@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/activity"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/github/ghclient"
-	"github.com/colonyops/hive/cmd/desktop/internal/app/sources/sourcehttp"
 	"github.com/colonyops/hive/internal/platform/credentials"
+	"github.com/colonyops/hive/internal/platform/forge/ghclient"
+	"github.com/colonyops/hive/internal/platform/sourcehttp"
 )
 
 // testAccount is the credential ref every fixture in this file resolves its

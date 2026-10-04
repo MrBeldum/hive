@@ -398,8 +398,8 @@ The headless core lives under `cmd/desktop/internal/app/**` and every Wails serv
 fallback, with tokens stored in the OS keychain (`HIVE_GITHUB_TOKEN` is a
 read-only headless override). The device flow uses the registered Hive Desktop
 OAuth app's public client ID by default; `HIVE_GITHUB_CLIENT_ID` overrides it,
-e.g. to test another registration. The GitHub REST client is desktop-owned:
-`cmd/desktop/internal/app/sources/github/ghclient`.
+e.g. to test another registration. The GitHub REST client is
+`internal/platform/forge/ghclient`, shared with the CLI's pull request status.
 
 `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` selects deterministic offline backends:
 `feed` starts authenticated, while `onboarding` starts signed out with a fake
