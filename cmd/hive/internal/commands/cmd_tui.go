@@ -92,7 +92,8 @@ func (cmd *TuiCmd) run(ctx context.Context, _ *cli.Command) error {
 		GitStatus:     cmd.app.GitStatus(),
 		PluginManager: cmd.app.Plugins,
 		CommandSet:    cmd.app.CommandSet,
-		DB:            cmd.app.DB(),
+		Reviews:       cmd.app.Reviews(),
+		Notifications: cmd.app.Notifications(),
 		KVStore:       cmd.app.KV,
 		Renderer:      cmd.app.Renderer(),
 		BuildInfo: tui.BuildInfo{

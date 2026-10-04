@@ -27,7 +27,6 @@ import (
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/views/shared"
 	corereview "github.com/colonyops/hive/internal/domain/review"
-	"github.com/colonyops/hive/internal/store"
 )
 
 // ReviewFinalizedMsg is sent when review is finalized and copied to clipboard.
@@ -46,8 +45,8 @@ type View struct {
 	viewport          viewport.Model
 	watcher           *DocumentWatcher
 	contextDir        string
-	repoKey           string             // owner/repo display label
-	store             *store.ReviewStore // SQLite persistence for review sessions
+	repoKey           string // owner/repo display label
+	store             corereview.Store
 	width             int
 	height            int
 	fullScreen        bool                     // True when showing document in full-screen
@@ -95,7 +94,7 @@ type View struct {
 // New creates a new review view.
 // If contextDir is non-empty, it will watch for file changes.
 // If store is non-nil, comments will be persisted to the database.
-func New(logger zerolog.Logger, documents []Document, contextDir string, store *store.ReviewStore, handler KeyResolver, splitRatio int) View {
+func New(logger zerolog.Logger, documents []Document, contextDir string, store corereview.Store, handler KeyResolver, splitRatio int) View {
 	logger = logutils.Component(logger, "tui.review")
 	items := BuildTreeItems(documents)
 	delegate := NewReviewTreeDelegate()
@@ -2439,7 +2438,7 @@ func (v *View) Height() int {
 }
 
 // Store returns the review store.
-func (v *View) Store() *store.ReviewStore {
+func (v *View) Store() corereview.Store {
 	return v.store
 }
 

@@ -268,10 +268,16 @@ needs no lint edit:
 | Store | `internal/store/` | `hive.db`: sqlc output, migrations, one store per aggregate | `pkg/`, `domain/`, `platform/sqlite` | `store-is-persistence` |
 | Config | `internal/config/` | The engine sections of `config.yaml`: load, validate, the comment-preserving writer | `pkg/`, `domain/` | `config-is-data` |
 | Engine | `internal/hive/` | One subpackage per application service, the event bus, and `hive.Engine`, which composes them | everything above | |
-| Programs | `cmd/hive/internal/`, `cmd/desktop/internal/` | Input, rendering, program-only features, program-only config | any shared layer, their own tree | `core`, `cli-no-desktop-deps`, `desktop-no-cli-deps` |
+| Programs | `cmd/hive/internal/`, `cmd/desktop/internal/` | Input, rendering, program-only features, program-only config | any shared layer except `store`, their own tree | `core`, `cli-no-desktop-deps`, `desktop-no-cli-deps`, `programs-use-services` |
 
 `shared-surface-free` keeps charm, Wails and both programs out of all of
 `internal/`.
+
+A program reaches `hive.db` through the engine: its services, and accessors
+such as `KV()` and `Reviews()` that return a domain port.
+`programs-use-services` denies `internal/store` below `cmd/`; tests are
+exempt, and `store/db` (the handle `hive.OpenDB` returns) and `store/migrate`
+(the desktop's own database) stay importable.
 
 The engine takes its drivers as `hive.Ports` and builds the config-derived
 services on `New` and on each `Reload`. Engine subpackages never import the

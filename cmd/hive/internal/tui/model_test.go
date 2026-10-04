@@ -75,7 +75,8 @@ func newKeybindingPrecedenceModel(t *testing.T, mutate func(*config.Config)) Mod
 		PluginManager: pluginManager,
 		CommandSet:    commandSet,
 		TodoService:   todoService,
-		DB:            database,
+		Reviews:       store.NewReviewStore(database),
+		Notifications: store.NewNotifyStore(database),
 		Bus:           tb.EventBus,
 	}, Opts{})
 
@@ -161,7 +162,8 @@ func TestOpenNewSessionFormUsesEnvironmentDefaultAgent(t *testing.T) {
 		PluginManager: pluginManager,
 		CommandSet:    commandSet,
 		TodoService:   todoService,
-		DB:            database,
+		Reviews:       store.NewReviewStore(database),
+		Notifications: store.NewNotifyStore(database),
 		Bus:           tb.EventBus,
 	}, Opts{})
 

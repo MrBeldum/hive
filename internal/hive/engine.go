@@ -10,12 +10,16 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/colonyops/hive/internal/hive/doctor"
 
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/internal/config"
+	"github.com/colonyops/hive/internal/domain/kv"
+	"github.com/colonyops/hive/internal/domain/notify"
+	"github.com/colonyops/hive/internal/domain/review"
 	"github.com/colonyops/hive/internal/domain/terminal"
 	"github.com/colonyops/hive/internal/hive/events"
 	"github.com/colonyops/hive/internal/hive/gitstatus"
@@ -30,6 +34,7 @@ import (
 	"github.com/colonyops/hive/internal/store"
 	"github.com/colonyops/hive/internal/store/db"
 	"github.com/colonyops/hive/pkg/executil"
+	"github.com/colonyops/hive/pkg/logutils"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 
@@ -74,10 +79,13 @@ type services struct {
 // current config. Fetch a service per call (e.Sessions().X) and do not hold
 // it across a Reload, or it keeps serving the old config.
 type Engine struct {
-	ports    Ports
-	hc       *hcsvc.Service
-	reloadMu sync.Mutex
-	current  atomic.Pointer[services]
+	ports         Ports
+	hc            *hcsvc.Service
+	kv            *store.KVStore
+	reviews       review.Store
+	notifications notify.Store
+	reloadMu      sync.Mutex
+	current       atomic.Pointer[services]
 }
 
 // OpenDB opens hive.db in dataDir and imports the JSON stores that predate
@@ -120,8 +128,11 @@ func New(cfg *config.Config, p Ports) (*Engine, error) {
 	}
 
 	e := &Engine{
-		ports: p,
-		hc:    hcsvc.NewService(p.Logger, store.NewHCStore(p.DB)),
+		ports:         p,
+		hc:            hcsvc.NewService(p.Logger, store.NewHCStore(p.DB)),
+		kv:            store.NewKVStore(p.DB),
+		reviews:       store.NewReviewStore(p.DB),
+		notifications: store.NewNotifyStore(p.DB),
 	}
 	built, err := e.build(cfg)
 	if err != nil {
@@ -210,6 +221,29 @@ func (e *Engine) Status() *statussvc.Service { return e.load().status }
 
 // HC returns the honeycomb service. It reads no config, so Reload keeps it.
 func (e *Engine) HC() *hcsvc.Service { return e.hc }
+
+func (e *Engine) KV() kv.KV { return e.kv }
+
+func (e *Engine) Reviews() review.Store { return e.reviews }
+
+func (e *Engine) Notifications() notify.Store { return e.notifications }
+
+// SweepKV deletes expired kv entries every interval until ctx is done.
+func (e *Engine) SweepKV(ctx context.Context, interval time.Duration) {
+	logger := logutils.Component(e.ports.Logger, "kv-sweep")
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := e.kv.SweepExpired(ctx); err != nil {
+				logger.Debug().Err(err).Msg("kv sweep failed")
+			}
+		}
+	}
+}
 
 func (e *Engine) Messages() *msgsvc.Service { return e.load().messages }
 

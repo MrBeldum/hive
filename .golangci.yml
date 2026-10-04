@@ -190,6 +190,16 @@ linters:
               desc: web is HTTP plumbing the devserver shares. Kind mapping stays in the adapter that owns the vocabulary.
             - pkg: github.com/colonyops/hive/cmd/desktop/internal/adapter
               desc: web is HTTP plumbing the devserver shares. An adapter imports it, not the reverse.
+        # A program reaches hive.db through the engine's services and the
+        # domain ports it hands out. store/db (the handle hive.OpenDB returns)
+        # and store/migrate (the desktop's own database) stay importable.
+        programs-use-services:
+          files:
+            - "**/cmd/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/colonyops/hive/internal/store$
+              desc: Programs use engine services, not hive.db stores. Add an accessor on hive.Engine that returns a domain port (docs/architecture.md, "Layers and the dependency rule").
         cli-no-desktop-deps:
           files:
             - "**/cmd/hive/**"
