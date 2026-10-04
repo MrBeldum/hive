@@ -3,18 +3,20 @@ package tui
 import (
 	"context"
 
+	"github.com/rs/zerolog"
+
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	lipgloss "charm.land/lipgloss/v2"
 
+	"github.com/colonyops/hive/cmd/hive/internal/config"
 	"github.com/colonyops/hive/cmd/hive/internal/styles"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components/form"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/sourcepicker"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/notify"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/hive"
+	"github.com/colonyops/hive/internal/domain/notify"
+	"github.com/colonyops/hive/internal/domain/session"
+	todosvc "github.com/colonyops/hive/internal/hive/todo"
 )
 
 // ModalCoordinator owns all modal component references, pending action state,
@@ -185,8 +187,8 @@ func (mc *ModalCoordinator) ShowHelp(title string, sections []components.HelpDia
 }
 
 // ShowNotifications creates and displays the notification modal.
-func (mc *ModalCoordinator) ShowNotifications(store notify.Store) {
-	mc.Notification = NewNotificationModal(store, mc.width, mc.height)
+func (mc *ModalCoordinator) ShowNotifications(logger zerolog.Logger, store notify.Store) {
+	mc.Notification = NewNotificationModal(logger, store, mc.width, mc.height)
 }
 
 // ShowConfirm creates and displays the confirmation modal.
@@ -220,8 +222,8 @@ func (mc *ModalCoordinator) DismissInfo() {
 }
 
 // ShowTodoPanel creates and displays the todo action panel.
-func (mc *ModalCoordinator) ShowTodoPanel(service *hive.TodoService) {
-	mc.TodoPanel = NewTodoPanel(service, mc.width, mc.height)
+func (mc *ModalCoordinator) ShowTodoPanel(logger zerolog.Logger, service *todosvc.Service) {
+	mc.TodoPanel = NewTodoPanel(logger, service, mc.width, mc.height)
 }
 
 // DismissTodoPanel closes the todo panel.

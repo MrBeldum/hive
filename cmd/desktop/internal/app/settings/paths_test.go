@@ -1,9 +1,13 @@
 package settings
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/rs/zerolog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,4 +121,54 @@ func TestAgentWorkspacesRootResolution(t *testing.T) {
 		paths := ResolvePaths(Bootstrap{}, ResolveOptions{AgentWorkspacesDir: filepath.Join(root, "yaml-workspaces")})
 		assert.Equal(t, envDir, paths.AgentWorkspacesDir)
 	})
+}
+
+func TestHiveDataDirFollowsTheCLIsDataDirFromTheLoginShell(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv(EnvDataDir, data)
+	shell := map[string]string{"HIVE_DATA_DIR": "/from/shell"}
+
+	paths := ResolvePaths(Bootstrap{}, ResolveOptions{Getenv: func(name string) string { return shell[name] }})
+	assert.Equal(t, "/from/shell", paths.HiveDataDir)
+
+	shell[EnvHiveDataDir] = "/desktop/only"
+	paths = ResolvePaths(Bootstrap{}, ResolveOptions{Getenv: func(name string) string { return shell[name] }})
+	assert.Equal(t, "/desktop/only", paths.HiveDataDir, "the desktop-only variable wins")
+}
+
+func TestHiveDataDirIgnoresHIVEDATADIRWithoutALookup(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv(EnvDataDir, data)
+	unsetEnv(t, EnvHiveDataDir)
+	t.Setenv("HIVE_DATA_DIR", t.TempDir())
+
+	assert.Equal(t, data, ResolvePaths(Bootstrap{}, ResolveOptions{}).HiveDataDir)
+}
+
+func TestLogHiveDataDirWarnsWhenAFailedProbeHidTheCLIsDataDir(t *testing.T) {
+	unsetEnv(t, EnvHiveDataDir)
+	unsetEnv(t, "HIVE_DATA_DIR")
+	paths := Paths{DataDir: "/desktop", HiveDataDir: "/desktop"}
+
+	var buf bytes.Buffer
+	LogHiveDataDir(zerolog.New(&buf), paths, errors.New("shell timed out"))
+	assert.Contains(t, buf.String(), `"level":"warn"`)
+	assert.Contains(t, buf.String(), `"hive_data_dir":"/desktop"`)
+	assert.Contains(t, buf.String(), "shell timed out")
+
+	buf.Reset()
+	LogHiveDataDir(zerolog.New(&buf), paths, nil)
+	assert.Contains(t, buf.String(), `"level":"info"`)
+}
+
+// The process environment answers before the login shell is asked, so a failed
+// probe hid nothing when the variable is set here.
+func TestLogHiveDataDirTrustsAVariableThisProcessHas(t *testing.T) {
+	unsetEnv(t, EnvHiveDataDir)
+	t.Setenv("HIVE_DATA_DIR", "/from/terminal")
+
+	var buf bytes.Buffer
+	LogHiveDataDir(zerolog.New(&buf), Paths{DataDir: "/desktop", HiveDataDir: "/from/terminal"}, errors.New("shell timed out"))
+	assert.Contains(t, buf.String(), `"level":"info"`)
+	assert.Contains(t, buf.String(), `"hive_data_dir":"/from/terminal"`)
 }

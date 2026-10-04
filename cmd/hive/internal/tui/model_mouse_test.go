@@ -6,20 +6,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colonyops/hive/internal/hive/gitstatus"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/plugins"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/views/sessions"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/eventbus/testbus"
-	"github.com/colonyops/hive/internal/core/git"
-	"github.com/colonyops/hive/internal/core/multiplexer"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/core/terminal"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/internal/hive/plugins"
+	hiveconfig "github.com/colonyops/hive/internal/config"
+	"github.com/colonyops/hive/internal/domain/multiplexer"
+	"github.com/colonyops/hive/internal/domain/session"
+	"github.com/colonyops/hive/internal/domain/terminal"
+	"github.com/colonyops/hive/internal/hive/events/testbus"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
+	statussvc "github.com/colonyops/hive/internal/hive/status"
+	"github.com/colonyops/hive/internal/platform/git"
 	"github.com/colonyops/hive/pkg/executil/executiltest"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
@@ -85,26 +89,26 @@ func (mouseTestMultiplexer) KillSession(context.Context, multiplexer.Target) err
 func (mouseTestMultiplexer) KillWindow(context.Context, multiplexer.Target) error  { return nil }
 
 var (
-	_ session.Store           = (*mouseTestStore)(nil)
-	_ git.Git                 = (*mouseTestGit)(nil)
-	_ hive.SessionMultiplexer = mouseTestMultiplexer{}
+	_ session.Store          = (*mouseTestStore)(nil)
+	_ git.Git                = (*mouseTestGit)(nil)
+	_ sessionsvc.Multiplexer = mouseTestMultiplexer{}
 )
 
 // newMouseTestSessionService creates a minimal SessionService for mouse tests.
-func newMouseTestSessionService(t *testing.T) *hive.SessionService {
+func newMouseTestSessionService(t *testing.T) *sessionsvc.Service {
 	t.Helper()
 	tb := testbus.New(t)
 	log := zerolog.New(io.Discard)
 	r := tmpl.New(tmpl.Config{})
-	return hive.NewSessionService(
+	return sessionsvc.NewService(
+		log,
 		&mouseTestStore{},
 		&mouseTestGit{},
-		&config.Config{DataDir: t.TempDir(), GitPath: "git"},
+		&hiveconfig.Config{DataDir: t.TempDir(), GitPath: "git"},
 		tb.EventBus,
 		&executiltest.Exec{},
 		r,
-		hive.PlainStyler{},
-		log,
+		sessionsvc.PlainStyler{},
 		io.Discard,
 		io.Discard,
 		mouseTestMultiplexer{},
@@ -116,14 +120,15 @@ func newMouseTestSessionsView(t *testing.T) *sessions.View {
 	t.Helper()
 	svc := newMouseTestSessionService(t)
 	cfg := &config.Config{}
-	handler := NewKeybindingResolver(nil, plugins.NewCommandSet(nil, nil), testRenderer)
-	status := hive.NewStatusService(terminal.NewManager(nil), 1)
-	pm := plugins.NewManager(plugins.NewWorkerPool(0), plugins.NewCommandSet(nil, nil))
+	handler := NewKeybindingResolver(zerolog.Nop(), nil, plugins.NewCommandSet(nil, nil), testRenderer)
+	status := statussvc.NewService(zerolog.Nop(), terminal.NewManager(nil), 1)
+	pm := plugins.NewManager(zerolog.Nop(), plugins.NewWorkerPool(0), plugins.NewCommandSet(nil, nil))
 	return sessions.New(sessions.ViewOpts{
 		Cfg:           cfg,
 		Service:       svc,
 		Handler:       handler,
 		Status:        status,
+		GitStatus:     gitstatus.NewService(zerolog.Nop(), svc.Git(), 1),
 		PluginManager: pm,
 	})
 }
@@ -133,7 +138,7 @@ func newMouseTestSessionsView(t *testing.T) *sessions.View {
 // handleKey doesn't dereference a nil pointer when dispatching Enter on a double-click.
 func newBaseMouseModel(t *testing.T) Model {
 	t.Helper()
-	handler := NewKeybindingResolver(nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
+	handler := NewKeybindingResolver(zerolog.Nop(), nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
 	return Model{
 		cfg:             &config.Config{},
 		activeView:      ViewSessions,

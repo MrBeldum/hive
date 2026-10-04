@@ -6,13 +6,17 @@ package settings
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+
+	"github.com/rs/zerolog"
+
+	"github.com/colonyops/hive/internal/config"
+	"github.com/colonyops/hive/pkg/pathutil"
 )
 
 const (
 	EnvDataDir     = "HIVE_DESKTOP_DATA_DIR"
-	EnvHiveDataDir = "HIVE_DESKTOP_HIVE_DATA_DIR"
+	EnvHiveDataDir = config.EnvDesktopDataDir
 	EnvConfigDir   = "HIVE_DESKTOP_CONFIG_DIR"
 	EnvFlowsDir    = "HIVE_DESKTOP_FLOWS_DIR"
 	EnvActionsPath = "HIVE_DESKTOP_ACTIONS_PATH"
@@ -36,9 +40,10 @@ const (
 // repeatedly.
 type Paths struct {
 	DataDir string
-	// HiveDataDir holds hive.db, shared with the external hive CLI. It defaults
-	// to DataDir; dev overrides it to the installed hive data dir so sessions
-	// created in dev land in the real database while desktop state stays isolated.
+	// HiveDataDir holds hive.db, shared with the external hive CLI. It is
+	// HIVE_DESKTOP_HIVE_DATA_DIR, then HIVE_DATA_DIR, then DataDir. Dev sets the
+	// first to the installed hive data dir so sessions created in dev land in
+	// the real database while desktop state stays isolated.
 	HiveDataDir string
 	StateDir    string
 	ConfigDir   string
@@ -67,6 +72,11 @@ type ResolveOptions struct {
 	// AgentWorkspacesDir is settings' agent_workspaces.dir. Empty resolves to
 	// <ConfigDir>/workspaces; a leading `~` is expanded here.
 	AgentWorkspacesDir string
+	// Getenv reads the hive data dir variables. main passes the login shell's
+	// environment, where a user exports HIVE_DATA_DIR for the CLI. nil reads
+	// only HIVE_DESKTOP_HIVE_DATA_DIR from this process, so a test that
+	// isolates DataDir never reaches a HIVE_DATA_DIR in the developer's shell.
+	Getenv func(string) string
 }
 
 // ResolvePaths applies explicit environment overrides over bootstrap and
@@ -77,12 +87,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	if !dataOverride {
 		dataDir = b.DataDir
 		if dataDir == "" {
-			dataHome := os.Getenv("XDG_DATA_HOME")
-			if dataHome == "" {
-				home, _ := os.UserHomeDir()
-				dataHome = filepath.Join(home, ".local", "share")
-			}
-			dataDir = filepath.Join(dataHome, "hive")
+			dataDir = filepath.Join(pathutil.XDGDataHome(), "hive")
 		}
 	}
 
@@ -91,19 +96,17 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	if !configOverride {
 		configDir = b.ConfigDir
 		if configDir == "" {
-			configHome := os.Getenv("XDG_CONFIG_HOME")
-			if configHome == "" {
-				home, _ := os.UserHomeDir()
-				configHome = filepath.Join(home, ".config")
-			}
-			configDir = filepath.Join(configHome, "hive", "desktop")
+			configDir = filepath.Join(pathutil.XDGConfigHome(), "hive", "desktop")
 		}
 	}
 
-	hiveDataDir, hiveEnv := os.LookupEnv(EnvHiveDataDir)
-	if !hiveEnv || hiveDataDir == "" {
-		hiveDataDir = dataDir
+	getenv := opts.Getenv
+	if getenv == nil {
+		getenv = desktopOnlyGetenv
 	}
+	// DataDir, not config.DefaultDataDir, is the fallback: an isolated desktop
+	// data dir keeps its hive.db beside it.
+	hiveDataDir := config.ResolveDataDir(getenv, dataDir)
 
 	stateDir := filepath.Join(dataDir, "desktop")
 	flowsDir := os.Getenv(EnvFlowsDir)
@@ -127,7 +130,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	if agentWorkspacesDir == "" {
 		agentWorkspacesDir = filepath.Join(configDir, "workspaces")
 	} else {
-		agentWorkspacesDir = expandHome(agentWorkspacesDir)
+		agentWorkspacesDir = pathutil.ExpandHome(agentWorkspacesDir)
 	}
 
 	return Paths{
@@ -147,18 +150,26 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	}
 }
 
-// expandHome resolves a leading `~` in a configured agent-workspace root.
-// Every other Paths field is derived from XDG bases and is already absolute,
-// so this is the one place ResolvePaths needs it.
-func expandHome(dir string) string {
-	if dir != "~" && !strings.HasPrefix(dir, "~/") {
-		return dir
+// LogHiveDataDir records which hive.db this run opens. probeErr is why the
+// login shell could not be read, if it could not. A failed probe hides a
+// HIVE_DATA_DIR that the user exports from a shell startup file, so the app
+// falls back to its own data dir and can open a different hive.db than the
+// run before did.
+func LogHiveDataDir(logger zerolog.Logger, paths Paths, probeErr error) {
+	inProcess := os.Getenv(EnvHiveDataDir) != "" || os.Getenv(config.EnvDataDir) != ""
+	if probeErr != nil && !inProcess {
+		logger.Warn().Err(probeErr).Str("hive_data_dir", paths.HiveDataDir).
+			Msg("login shell environment unavailable, so HIVE_DATA_DIR was not read; hive.db is in the desktop data dir for this run")
+		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return dir
+	logger.Info().Str("hive_data_dir", paths.HiveDataDir).Msg("resolved the hive data dir")
+}
+
+func desktopOnlyGetenv(name string) string {
+	if name != EnvHiveDataDir {
+		return ""
 	}
-	return filepath.Join(home, strings.TrimPrefix(dir, "~"))
+	return os.Getenv(name)
 }
 
 func envMockMode() string {

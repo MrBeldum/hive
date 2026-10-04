@@ -6,15 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/sources"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/command"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/sourcepicker"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/internal/sources"
+	"github.com/colonyops/hive/internal/domain/session"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
 )
 
 // stubSource is a minimal sources.Source for registry-backed wiring tests.
@@ -87,27 +89,27 @@ func TestFetchSourceDetail(t *testing.T) {
 
 	t.Run("fetches when capable and item has no detail", func(t *testing.T) {
 		result := sourcepickerResult(stubSource{id: "issues", detail: body}, capable)
-		got := fetchSourceDetail(ctx, result, "o/r", "")
+		got := fetchSourceDetail(ctx, zerolog.Nop(), result, "o/r", "")
 		assert.Equal(t, body, got)
 	})
 
 	t.Run("no capability falls back to body field", func(t *testing.T) {
 		result := sourcepickerResult(stubSource{id: "prs", detail: body}, sources.Manifest{})
 		result.Item.Fields = map[string]any{"body": "field body"}
-		got := fetchSourceDetail(ctx, result, "o/r", "")
+		got := fetchSourceDetail(ctx, zerolog.Nop(), result, "o/r", "")
 		require.NotNil(t, got.Markdown)
 		assert.Equal(t, "field body", got.Markdown.Content, "sources without detail capability use the body field")
 	})
 
 	t.Run("no capability and no body field yields empty detail", func(t *testing.T) {
 		result := sourcepickerResult(stubSource{id: "prs", detail: body}, sources.Manifest{})
-		got := fetchSourceDetail(ctx, result, "o/r", "")
+		got := fetchSourceDetail(ctx, zerolog.Nop(), result, "o/r", "")
 		assert.Equal(t, sources.Detail{}, got)
 	})
 
 	t.Run("fetch failure degrades to empty detail", func(t *testing.T) {
 		result := sourcepickerResult(stubSource{id: "issues", detailErr: assert.AnError}, capable)
-		got := fetchSourceDetail(ctx, result, "o/r", "")
+		got := fetchSourceDetail(ctx, zerolog.Nop(), result, "o/r", "")
 		assert.Equal(t, sources.Detail{}, got, "detail errors must not block session creation")
 	})
 }
@@ -123,10 +125,10 @@ func sourcepickerResult(src sources.Source, manifest sources.Manifest) sourcepic
 
 // fakeSessionCreator records CreateSession calls for fan-out tests.
 type fakeSessionCreator struct {
-	created []hive.CreateOptions
+	created []sessionsvc.CreateOptions
 }
 
-func (f *fakeSessionCreator) CreateSession(_ context.Context, opts hive.CreateOptions) (*session.Session, error) {
+func (f *fakeSessionCreator) CreateSession(_ context.Context, opts sessionsvc.CreateOptions) (*session.Session, error) {
 	f.created = append(f.created, opts)
 	return &session.Session{ID: fmt.Sprintf("id-%d", len(f.created)), Slug: opts.Name}, nil
 }

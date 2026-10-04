@@ -12,20 +12,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colonyops/hive/pkg/logutils"
+	"github.com/rs/zerolog"
+
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
+	act "github.com/colonyops/hive/cmd/hive/internal/action"
 	"github.com/colonyops/hive/cmd/hive/internal/styles"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/views/shared"
-	act "github.com/colonyops/hive/internal/core/action"
-	corereview "github.com/colonyops/hive/internal/core/review"
-	"github.com/colonyops/hive/internal/data/stores"
+	corereview "github.com/colonyops/hive/internal/domain/review"
+	"github.com/colonyops/hive/internal/store"
 )
 
 // ReviewFinalizedMsg is sent when review is finalized and copied to clipboard.
@@ -44,8 +46,8 @@ type View struct {
 	viewport          viewport.Model
 	watcher           *DocumentWatcher
 	contextDir        string
-	repoKey           string              // owner/repo display label
-	store             *stores.ReviewStore // SQLite persistence for review sessions
+	repoKey           string             // owner/repo display label
+	store             *store.ReviewStore // SQLite persistence for review sessions
 	width             int
 	height            int
 	fullScreen        bool                     // True when showing document in full-screen
@@ -85,14 +87,16 @@ type View struct {
 	treeSearchInput textinput.Model // search input for tree navigation
 	treeSearchQuery string          // current tree search query
 
-	handler    KeyResolver            // resolves configurable keybindings to actions
+	handler    KeyResolver // resolves configurable keybindings to actions
+	logger     zerolog.Logger
 	helpDialog *components.HelpDialog // active help overlay, nil when not shown
 }
 
 // New creates a new review view.
 // If contextDir is non-empty, it will watch for file changes.
 // If store is non-nil, comments will be persisted to the database.
-func New(documents []Document, contextDir string, store *stores.ReviewStore, handler KeyResolver, splitRatio int) View {
+func New(logger zerolog.Logger, documents []Document, contextDir string, store *store.ReviewStore, handler KeyResolver, splitRatio int) View {
+	logger = logutils.Component(logger, "tui.review")
 	items := BuildTreeItems(documents)
 	delegate := NewReviewTreeDelegate()
 	l := list.New(items, delegate, 0, 0)
@@ -117,7 +121,7 @@ func New(documents []Document, contextDir string, store *stores.ReviewStore, han
 	// Initialize watcher if context directory is provided
 	var watcher *DocumentWatcher
 	if contextDir != "" {
-		w, err := NewDocumentWatcher(contextDir)
+		w, err := NewDocumentWatcher(logger, contextDir)
 		if err == nil {
 			watcher = w
 		}
@@ -144,6 +148,7 @@ func New(documents []Document, contextDir string, store *stores.ReviewStore, han
 	modalState := NewModalState()
 
 	v := View{
+		logger:          logger,
 		list:            l,
 		viewport:        vp,
 		watcher:         watcher,
@@ -380,7 +385,7 @@ func (v *View) SetContextDir(contextDir string) tea.Cmd {
 
 	// Start new watcher
 	if contextDir != "" {
-		w, err := NewDocumentWatcher(contextDir)
+		w, err := NewDocumentWatcher(v.logger, contextDir)
 		if err == nil {
 			v.watcher = w
 		}
@@ -420,7 +425,7 @@ func (v View) Update(msg tea.Msg) (View, tea.Cmd) {
 
 	case DocumentChangeMsg:
 		// Rebuild tree with new documents
-		log.Debug().
+		v.logger.Debug().
 			Int("document_count", len(msg.Documents)).
 			Msg("review: rebuilding document tree from file watcher")
 		items := BuildTreeItems(msg.Documents)
@@ -1203,7 +1208,7 @@ func (v *View) loadDocument(doc *Document) {
 		return
 	}
 
-	log.Debug().
+	v.logger.Debug().
 		Str("path", doc.RelPath).
 		Str("type", doc.Type.String()).
 		Msg("review: loading document")
@@ -1233,12 +1238,12 @@ func (v *View) loadDocument(doc *Document) {
 			if err == nil {
 				// Skip finalized sessions - they should not be edited
 				if dbSession.IsFinalized() {
-					log.Debug().
+					v.logger.Debug().
 						Str("session_id", dbSession.ID).
 						Str("document", doc.RelPath).
 						Msg("review: skipping finalized session")
 				} else {
-					log.Debug().
+					v.logger.Debug().
 						Str("session_id", dbSession.ID).
 						Str("document", doc.RelPath).
 						Msg("review: loaded existing session")
@@ -1772,7 +1777,7 @@ func (v *View) addComment(commentText string) {
 			CreatedAt:   comment.CreatedAt,
 		}
 		if err := v.store.SaveComment(ctx, dbComment); err != nil {
-			log.Error().
+			v.logger.Error().
 				Err(err).
 				Str("session_id", comment.SessionID).
 				Str("comment_id", comment.ID).
@@ -1783,7 +1788,7 @@ func (v *View) addComment(commentText string) {
 	v.activeSession.Comments = append(v.activeSession.Comments, comment)
 	v.activeSession.ModifiedAt = time.Now()
 
-	log.Debug().
+	v.logger.Debug().
 		Str("session_id", v.activeSession.ID).
 		Int("start_line", comment.StartLine).
 		Int("end_line", comment.EndLine).
@@ -1820,14 +1825,14 @@ func (v *View) updateComment(commentID, newText string) {
 					CreatedAt:   comment.CreatedAt,
 				}
 				if err := v.store.UpdateComment(ctx, dbComment); err != nil {
-					log.Error().
+					v.logger.Error().
 						Err(err).
 						Str("comment_id", commentID).
 						Msg("review: failed to update comment in database - changes will be lost on restart")
 				}
 			}
 
-			log.Debug().
+			v.logger.Debug().
 				Str("comment_id", commentID).
 				Int("start_line", comment.StartLine).
 				Int("end_line", comment.EndLine).
@@ -1858,7 +1863,7 @@ func (v *View) deleteCommentsAtLine(lineNum int) {
 		} else if v.store != nil {
 			// Delete from database if store is available
 			if err := v.store.DeleteComment(ctx, comment.ID); err != nil {
-				log.Error().
+				v.logger.Error().
 					Err(err).
 					Str("comment_id", comment.ID).
 					Msg("review: failed to delete comment from database - may reappear on restart")
@@ -1869,7 +1874,7 @@ func (v *View) deleteCommentsAtLine(lineNum int) {
 	v.activeSession.Comments = remainingComments
 	v.activeSession.ModifiedAt = time.Now()
 
-	log.Debug().
+	v.logger.Debug().
 		Int("line", lineNum).
 		Int("remaining_comments", len(remainingComments)).
 		Msg("review: deleted comment(s) at line")
@@ -2434,7 +2439,7 @@ func (v *View) Height() int {
 }
 
 // Store returns the review store.
-func (v *View) Store() *stores.ReviewStore {
+func (v *View) Store() *store.ReviewStore {
 	return v.store
 }
 

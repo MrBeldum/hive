@@ -38,7 +38,7 @@ linters:
       rules:
         main:
           deny:
-            - pkg: io/util
+            - pkg: io/ioutil
               desc: |
                 Deprecated: As of Go 1.16, the same functionality is now provided by
                 package io or package os, and those implementations should be
@@ -46,6 +46,8 @@ linters:
                 details.
             - pkg: github.com/pkg/errors
               desc: Should be replaced by standard lib errors package
+            - pkg: github.com/rs/zerolog/log
+              desc: Take a zerolog.Logger as a parameter and label it with logutils.Component. No program assigns the global logger, so it writes to stderr.
         # depguard matches these globs against absolute paths. A checkout
         # below a directory named "cmd" exempts every file from this rule.
         shared-surface-free:
@@ -59,6 +61,62 @@ linters:
               desc: Shared internal/ must not render. Put UI code below cmd/<artifact>/internal.
             - pkg: github.com/wailsapp
               desc: Shared internal/ must not depend on the desktop runtime.
+            - pkg: github.com/colonyops/hive/cmd
+              desc: Shared internal/ must not import a program.
+        domain-is-pure:
+          files:
+            - "**/internal/domain/**"
+            - "!**/cmd/**"
+          # Longer lax-mode allow matches override the internal deny.
+          list-mode: lax
+          allow:
+            - github.com/colonyops/hive/internal/domain
+          deny:
+            - pkg: github.com/colonyops/hive/internal
+              desc: domain imports only domain (docs/architecture.md, "Layers and the dependency rule").
+            - pkg: os/exec
+              desc: domain does no I/O; put drivers in internal/platform.
+            - pkg: net
+              desc: domain does no I/O; put drivers in internal/platform.
+            - pkg: database/sql
+              desc: domain does no I/O; persistence belongs in the store layer.
+            - pkg: github.com/fsnotify
+              desc: domain does no I/O; put watchers in internal/platform.
+        platform-is-a-driver:
+          files:
+            - "**/internal/platform/**"
+            - "!**/cmd/**"
+          # Longer lax-mode allow matches override the internal deny.
+          list-mode: lax
+          allow:
+            - github.com/colonyops/hive/internal/domain
+            - github.com/colonyops/hive/internal/platform
+          deny:
+            - pkg: github.com/colonyops/hive/internal
+              desc: platform drives one outside system and imports only domain and other drivers (docs/architecture.md, "Layers and the dependency rule"). Take what you need as a parameter.
+        config-is-data:
+          files:
+            - "**/internal/config/**"
+            - "!**/cmd/**"
+          list-mode: lax
+          allow:
+            - github.com/colonyops/hive/internal/domain
+            - github.com/colonyops/hive/internal/config
+          deny:
+            - pkg: github.com/colonyops/hive/internal
+              desc: config is data. It loads, validates and writes config.yaml and imports only domain (docs/architecture.md, "Layers and the dependency rule").
+        store-is-persistence:
+          files:
+            - "**/internal/store/**"
+            - "!**/cmd/**"
+          list-mode: lax
+          allow:
+            - github.com/colonyops/hive/internal/domain
+            - github.com/colonyops/hive/internal/store
+            - github.com/colonyops/hive/internal/platform/sqlite
+          deny:
+            - pkg: github.com/colonyops/hive/internal
+              desc: store is hive.db persistence and imports only domain and platform/sqlite (docs/architecture.md, "Layers and the dependency rule").
         core:
           files:
             - "**/cmd/desktop/internal/app/**"
@@ -93,51 +151,45 @@ linters:
               desc: |
                 The OTel SDK is cmd/desktop/internal/app/telemetry's. A package
                 that emits declares package-level instruments through
-                cmd/desktop/internal/app/observe and needs no SDK type to do
-                it. See docs/architecture.md, "Telemetry".
+                internal/platform/observe and needs no SDK type to do it. See
+                docs/architecture.md, "Telemetry".
             - pkg: go.opentelemetry.io/otel/exporters
               desc: |
                 An exporter is wired once, in cmd/desktop/internal/app/telemetry.
                 See docs/architecture.md, "Telemetry".
-        # cmd/desktop/internal/app consumes the shared hive packages only
-        # through the seam in dispatch/hive_adapters.go (docs/architecture.md,
-        # "Bounded Context"). The files list is the allowlist of files that sit
-        # on that seam.
-        app-shared-via-seam:
+        kit-is-hive-agnostic:
           files:
-            - "**/cmd/desktop/internal/app/**"
-            - "!**/cmd/desktop/internal/app/app.go"
-            - "!**/cmd/desktop/internal/app/dispatch/hive_adapters.go"
-            - "!**/cmd/desktop/internal/app/dispatch/hive_adapters_test.go"
-            - "!**/cmd/desktop/internal/app/dispatch/hive_hc_adapters.go"
-            - "!**/cmd/desktop/internal/app/dispatch/hive_hc_adapters_test.go"
-            - "!**/cmd/desktop/internal/app/dispatch/session_git_status_test.go"
-            - "!**/cmd/desktop/internal/app/dispatch/launch_session_executor_test.go"
-            - "!**/cmd/desktop/internal/app/data/queries/dbext.go"
-            - "!**/cmd/desktop/internal/app/data/queries/dbext_test.go"
-            - "!**/cmd/desktop/internal/app/hiveconf/hiveconf_test.go"
-          # Longer lax-mode allow matches override the internal/core deny.
-          list-mode: lax
-          allow:
-            - github.com/colonyops/hive/internal/core/session
-            - github.com/colonyops/hive/internal/core/validate
+            - "**/pkg/**"
+            - "!**/cmd/**"
+            - "!**/internal/**"
           deny:
-            - pkg: github.com/colonyops/hive/internal/core
-              desc: &seam |
-                cmd/desktop/internal/app consumes the shared hive packages only
-                through the seam: declare a narrow interface here, let the
-                shared type satisfy it structurally, and convert at the
-                boundary in dispatch/hive_adapters.go. If this file genuinely
-                belongs at the seam, extend the allowlist in this rule's
-                `files`, with a comment saying why.
-            - pkg: github.com/colonyops/hive/internal/data
-              desc: *seam
-            - pkg: github.com/colonyops/hive/internal/hive
-              desc: *seam
-            - pkg: github.com/colonyops/hive/internal/integration
-              desc: *seam
-            - pkg: github.com/colonyops/hive/internal/sources
-              desc: *seam
+            - pkg: github.com/colonyops/hive/internal
+              desc: pkg/ sits below every layer and must not import the engine.
+            - pkg: github.com/colonyops/hive/cmd
+              desc: pkg/ must not import a program.
+            - pkg: charm.land
+              desc: pkg/ must not render.
+            - pkg: github.com/charmbracelet
+              desc: pkg/ must not render.
+            - pkg: github.com/wailsapp
+              desc: pkg/ must not depend on the desktop runtime.
+        desktop-no-cli-deps:
+          files:
+            - "**/cmd/desktop/**"
+          deny:
+            - pkg: github.com/colonyops/hive/cmd/hive
+              desc: The desktop must not import the CLI program.
+        # The devserver imports cmd/desktop/internal/web, so the package cannot
+        # depend on the app. Go's internal rule enforced that while it lived
+        # in shared internal/ (ADR http-handler-conventions).
+        desktop-web-is-plumbing:
+          files:
+            - "**/cmd/desktop/internal/web/**"
+          deny:
+            - pkg: github.com/colonyops/hive/cmd/desktop/internal/app
+              desc: web is HTTP plumbing the devserver shares. Kind mapping stays in the adapter that owns the vocabulary.
+            - pkg: github.com/colonyops/hive/cmd/desktop/internal/adapter
+              desc: web is HTTP plumbing the devserver shares. An adapter imports it, not the reverse.
         cli-no-desktop-deps:
           files:
             - "**/cmd/hive/**"
@@ -194,9 +246,10 @@ linters:
     generated: lax
     rules:
       # The linters Hive Desktop adopted beyond the shared set apply to the
-      # desktop program only. The CLI and the shared packages keep the set
+      # desktop program and to the drivers that moved out of it into
+      # internal/platform. The CLI and the other shared packages keep the set
       # they were written against.
-      - path-except: (^|/)cmd/desktop/
+      - path-except: (^|/)(cmd/desktop|internal/platform/(tmux/(control|bin)|execenv|credentials|secrets|observe))/
         linters: [containedctx, contextcheck, forbidigo, forcetypeassert, interfacebloat, modernize, noctx, sqlclosecheck, usetesting]
       # forbidigo has no per-rule path filter, so the scope of its rules is
       # carved here. The adapter and package main are where application.Get,

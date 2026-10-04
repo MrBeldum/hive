@@ -4,11 +4,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/rs/zerolog"
+
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/plugins"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/views/review"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/eventbus"
-	"github.com/colonyops/hive/internal/core/eventbus/testbus"
-	"github.com/colonyops/hive/internal/hive/plugins"
+	"github.com/colonyops/hive/internal/hive/events"
+	"github.com/colonyops/hive/internal/hive/events/testbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,11 +19,11 @@ func TestHiveDocReviewCmd_nil_reviewView_shows_toast(t *testing.T) {
 	tb := testbus.New(t)
 
 	var received atomic.Int32
-	tb.SubscribeNotificationPublished(func(_ eventbus.NotificationPublishedPayload) {
+	tb.SubscribeNotificationPublished(func(_ events.NotificationPublishedPayload) {
 		received.Add(1)
 	})
 
-	handler := NewKeybindingResolver(nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
+	handler := NewKeybindingResolver(zerolog.Nop(), nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
 	m := &Model{
 		activeView:      ViewSessions,
 		reviewView:      nil,
@@ -36,7 +38,7 @@ func TestHiveDocReviewCmd_nil_reviewView_shows_toast(t *testing.T) {
 	cmd := HiveDocReviewCmd{Arg: ""}
 	_ = cmd.Execute(m)
 
-	tb.AssertPublished(t, eventbus.EventNotificationPublished)
+	tb.AssertPublished(t, events.EventNotificationPublished)
 	assert.Equal(t, int32(1), received.Load(), "expected a warning notification to be published")
 }
 
@@ -54,11 +56,11 @@ func TestHiveDocReviewCmd_Execute(t *testing.T) {
 			Type:    review.DocTypeResearch,
 		},
 	}
-	reviewView := review.New(docs, "/test", nil, nil, 0)
+	reviewView := review.New(zerolog.Nop(), docs, "/test", nil, nil, 0)
 	reviewView.SetSize(100, 40)
 
 	// Create a minimal handler for testing
-	handler := NewKeybindingResolver(nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
+	handler := NewKeybindingResolver(zerolog.Nop(), nil, plugins.NewCommandSet(map[string]config.UserCommand{}, nil), testRenderer)
 
 	m := &Model{
 		activeView: ViewSessions,
@@ -92,7 +94,7 @@ func TestOpenDocument(t *testing.T) {
 			Type:    review.DocTypeResearch,
 		},
 	}
-	reviewView := review.New(docs, "/test", nil, nil, 0)
+	reviewView := review.New(zerolog.Nop(), docs, "/test", nil, nil, 0)
 	reviewView.SetSize(100, 40)
 
 	tests := []struct {
@@ -160,7 +162,7 @@ func TestOpenDocument_SuffixMatch(t *testing.T) {
 			Type:    review.DocTypeResearch,
 		},
 	}
-	reviewView := review.New(docs, "/real/context/owner/repo", nil, nil, 0)
+	reviewView := review.New(zerolog.Nop(), docs, "/real/context/owner/repo", nil, nil, 0)
 	reviewView.SetSize(100, 40)
 
 	tests := []struct {

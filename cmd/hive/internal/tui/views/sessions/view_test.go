@@ -5,14 +5,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colonyops/hive/internal/hive/gitstatus"
+
+	"github.com/rs/zerolog"
+
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/core/terminal"
-	"github.com/colonyops/hive/internal/core/workspace"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/pkg/kv"
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/kvcache"
+	"github.com/colonyops/hive/internal/domain/session"
+	"github.com/colonyops/hive/internal/domain/terminal"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
+	statussvc "github.com/colonyops/hive/internal/hive/status"
+	"github.com/colonyops/hive/internal/platform/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,8 +99,8 @@ func TestExpandWindowItems_NilTerminalStatuses(t *testing.T) {
 }
 
 func TestExpandWindowItems_ZeroWindows(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Status: terminal.StatusActive})
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Status: terminal.StatusActive})
 	v := &View{terminalStatuses: ts}
 
 	items := []list.Item{TreeItem{Session: session.Session{ID: "s1"}}}
@@ -104,9 +109,9 @@ func TestExpandWindowItems_ZeroWindows(t *testing.T) {
 }
 
 func TestExpandWindowItems_OneWindow(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{
-		Windows: []hive.WindowStatus{{WindowIndex: "0", WindowName: "main"}},
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{
+		Windows: []statussvc.WindowStatus{{WindowIndex: "0", WindowName: "main"}},
 	})
 	v := &View{terminalStatuses: ts}
 
@@ -116,12 +121,12 @@ func TestExpandWindowItems_OneWindow(t *testing.T) {
 }
 
 func TestExpandWindowItems_OneWindowMultiplePanes(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{
-		Windows: []hive.WindowStatus{{
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{
+		Windows: []statussvc.WindowStatus{{
 			WindowIndex: "0",
 			WindowName:  "main",
-			Panes: []hive.PaneStatus{
+			Panes: []statussvc.PaneStatus{
 				{PaneID: "%1", Tool: "claude", Status: terminal.StatusReady},
 				{PaneID: "%2", Tool: "codex", Status: terminal.StatusActive},
 			},
@@ -147,11 +152,11 @@ func TestExpandWindowItems_OneWindowMultiplePanes(t *testing.T) {
 
 func TestRenderPreviewHeader_SelectedPaneUsesDisplayID(t *testing.T) {
 	sess := session.Session{ID: "abcd1234", Name: "my-session"}
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Windows: []hive.WindowStatus{{
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Windows: []statussvc.WindowStatus{{
 		WindowIndex: "0",
 		WindowName:  "main",
-		Panes:       []hive.PaneStatus{{PaneID: "%12", Tool: "claude", Status: terminal.StatusReady}},
+		Panes:       []statussvc.PaneStatus{{PaneID: "%12", Tool: "claude", Status: terminal.StatusReady}},
 	}}})
 	v := newTestView([]list.Item{TreeItem{
 		IsPaneItem:    true,
@@ -170,9 +175,9 @@ func TestRenderPreviewHeader_SelectedPaneUsesDisplayID(t *testing.T) {
 }
 
 func TestExpandWindowItems_MultipleWindows(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{
-		Windows: []hive.WindowStatus{
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{
+		Windows: []statussvc.WindowStatus{
 			{WindowIndex: "0", WindowName: "claude"},
 			{WindowIndex: "1", WindowName: "aider"},
 		},
@@ -195,7 +200,7 @@ func TestExpandWindowItems_MultipleWindows(t *testing.T) {
 }
 
 func TestExpandWindowItems_NonSessionPassthrough(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
 	v := &View{terminalStatuses: ts}
 
 	items := []list.Item{
@@ -208,18 +213,17 @@ func TestExpandWindowItems_NonSessionPassthrough(t *testing.T) {
 
 // --- applyFilter ---
 
-func newFilterTestView(sessions []session.Session, statusFilter terminal.Status, statuses *kv.Store[string, hive.TerminalStatus]) *View {
+func newFilterTestView(sessions []session.Session, statusFilter terminal.Status, statuses *kvcache.Store[string, statussvc.TerminalStatus]) *View {
 	delegate := NewTreeDelegate()
 	l := list.New([]list.Item{}, delegate, 80, 24)
 	columnWidths := &ColumnWidths{}
 	ts := statuses
 	if ts == nil {
-		ts = kv.New[string, hive.TerminalStatus]()
+		ts = kvcache.New[string, statussvc.TerminalStatus]()
 	}
-	gitStatuses := kv.New[string, GitStatus]()
-	// new(hive.SessionService) gives a zero-valued service whose Git() returns nil.
-	// applyFilter returns a tea.Cmd that captures the nil git client but never executes
-	// it in tests — so no nil-dereference occurs during the test.
+	gitStatuses := kvcache.New[string, GitStatus]()
+	// applyFilter returns a tea.Cmd that captures the git status service, whose
+	// git client is nil here. No test executes that command.
 	return &View{
 		list:             l,
 		allSessions:      sessions,
@@ -228,8 +232,8 @@ func newFilterTestView(sessions []session.Session, statusFilter terminal.Status,
 		terminalStatuses: ts,
 		gitStatuses:      gitStatuses,
 		columnWidths:     columnWidths,
-		service:          new(hive.SessionService),
-		gitWorkers:       1,
+		service:          new(sessionsvc.Service),
+		gitStatus:        gitstatus.NewService(zerolog.Nop(), nil, 1),
 		cfg:              &config.Config{Views: config.ViewsConfig{Sessions: config.SessionsViewConfig{GroupBy: config.GroupByRepo}}},
 	}
 }
@@ -277,10 +281,10 @@ func TestStatusMatchesFilter(t *testing.T) {
 }
 
 func TestApplyFilter_ApprovalFilterMatchesQuestion(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Status: terminal.StatusApproval})
-	ts.Set("s2", hive.TerminalStatus{Status: terminal.StatusQuestion})
-	ts.Set("s3", hive.TerminalStatus{Status: terminal.StatusReady})
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Status: terminal.StatusApproval})
+	ts.Set("s2", statussvc.TerminalStatus{Status: terminal.StatusQuestion})
+	ts.Set("s3", statussvc.TerminalStatus{Status: terminal.StatusReady})
 
 	sessions := []session.Session{
 		newSess("s1", "approval-session"),
@@ -300,9 +304,9 @@ func TestApplyFilter_ApprovalFilterMatchesQuestion(t *testing.T) {
 }
 
 func TestApplyFilter_StatusFilterMatches(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Status: terminal.StatusActive})
-	ts.Set("s2", hive.TerminalStatus{Status: terminal.StatusReady})
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Status: terminal.StatusActive})
+	ts.Set("s2", statussvc.TerminalStatus{Status: terminal.StatusReady})
 
 	sessions := []session.Session{
 		newSess("s1", "active-session"),
@@ -321,8 +325,8 @@ func TestApplyFilter_StatusFilterMatches(t *testing.T) {
 }
 
 func TestApplyFilter_StatusFilterNoMatches(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Status: terminal.StatusReady})
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Status: terminal.StatusReady})
 
 	sessions := []session.Session{newSess("s1", "ready-session")}
 	v := newFilterTestView(sessions, terminal.StatusActive, ts)
@@ -338,9 +342,9 @@ func TestApplyFilter_StatusFilterNoMatches(t *testing.T) {
 }
 
 func TestApplyFilter_FilterThenClear(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
-	ts.Set("s1", hive.TerminalStatus{Status: terminal.StatusActive})
-	ts.Set("s2", hive.TerminalStatus{Status: terminal.StatusReady})
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
+	ts.Set("s1", statussvc.TerminalStatus{Status: terminal.StatusActive})
+	ts.Set("s2", statussvc.TerminalStatus{Status: terminal.StatusReady})
 
 	sessions := []session.Session{
 		newSess("s1", "active"),
@@ -363,7 +367,7 @@ func TestApplyFilter_FilterThenClear(t *testing.T) {
 }
 
 func TestApplyFilter_NoTerminalStatusExcluded(t *testing.T) {
-	ts := kv.New[string, hive.TerminalStatus]()
+	ts := kvcache.New[string, statussvc.TerminalStatus]()
 	// neither session has a terminal status entry
 
 	sessions := []session.Session{
@@ -409,12 +413,12 @@ func newViewWithTerminalMgr(sessions []session.Session) *View {
 		list:             l,
 		allSessions:      sessions,
 		groupBy:          config.GroupByRepo,
-		terminalStatuses: kv.New[string, hive.TerminalStatus](),
-		gitStatuses:      kv.New[string, GitStatus](),
+		terminalStatuses: kvcache.New[string, statussvc.TerminalStatus](),
+		gitStatuses:      kvcache.New[string, GitStatus](),
 		columnWidths:     &ColumnWidths{},
-		service:          new(hive.SessionService),
-		status:           hive.NewStatusService(mgr, 1),
-		gitWorkers:       1,
+		service:          new(sessionsvc.Service),
+		status:           statussvc.NewService(zerolog.Nop(), mgr, 1),
+		gitStatus:        gitstatus.NewService(zerolog.Nop(), nil, 1),
 		cfg:              &config.Config{},
 	}
 }
@@ -445,13 +449,13 @@ func TestHandleSessionsLoaded_NoTerminalPollWhenEmpty(t *testing.T) {
 
 func TestHandleWorkspaceWatcherStartedScansAfterWatchInstallation(t *testing.T) {
 	root := t.TempDir()
-	watcher, err := workspace.NewWatcher([]string{root})
+	watcher, err := workspace.NewWatcher(zerolog.Nop(), []string{root})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, watcher.Close()) })
 
 	v := &View{
 		workspaces: []string{root},
-		service:    new(hive.SessionService),
+		service:    new(sessionsvc.Service),
 	}
 	cmd := v.handleWorkspaceWatcherStarted(WorkspaceWatcherStartedMsg{Watcher: watcher})
 
@@ -484,7 +488,7 @@ func TestHandleSessionRefreshTickDoesNotScanWorkspaces(t *testing.T) {
 		cfg: &config.Config{Views: config.ViewsConfig{Sessions: config.SessionsViewConfig{
 			RefreshInterval: time.Second,
 		}}},
-		service: new(hive.SessionService),
+		service: new(sessionsvc.Service),
 	}
 
 	msg := v.handleSessionRefreshTick()()
@@ -497,7 +501,7 @@ func TestHandleSessionRefreshTickDoesNotScanWorkspaces(t *testing.T) {
 func TestRefreshWorkspacesStartsManualScan(t *testing.T) {
 	v := &View{
 		workspaces: []string{t.TempDir()},
-		service:    new(hive.SessionService),
+		service:    new(sessionsvc.Service),
 	}
 
 	cmd := v.RefreshWorkspaces()

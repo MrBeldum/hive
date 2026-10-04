@@ -14,18 +14,39 @@ info:
   comments: ""
   version: "0.1.0"
 
-# root_path is the repo root so the watcher sees internal/** and cmd/**;
-# executes set `dir: desktop` to run the build from the app package.
+# root_path is the repo root, so the watcher sees the shared internal/** the
+# app runs on as well as cmd/desktop/**. It resolves against the directory
+# `wails3 dev` runs in (cmd/desktop), and each execute's dir resolves against
+# root_path.
 dev_mode:
-  root_path: ..
+  root_path: ../..
   log_level: warn
   debounce: 1000
   ignore:
+    # An entry is matched against the absolute path of a changed file: a plain
+    # name matches any one path component, and a pattern matches the whole
+    # path. A generic name is a pattern here, so "bin" does not hide
+    # internal/platform/tmux/bin.
+    #
+    # No entry names a directory that can hold a nested checkout
+    # (.claude/worktrees, .data): it would also match every file of a dev run
+    # inside that checkout, which would then never rebuild. The cost is that
+    # an edit in a nested checkout rebuilds this app too.
     dir:
       - .git
       - node_modules
       - frontend
-      - bin
+      - "*/cmd/desktop/bin/*"
+      - "*/cmd/hive/*"
+      - "*/cmd/tools/*"
+      - "*/docs/docs/*"
+      - "*/docs/site/*"
+      - "*/docs/.venv/*"
+      - "*/docs/.cache/*"
+      # Agent workspaces of the dev instance. An agent that writes a script
+      # there must not restart the app it runs in.
+      - "*/.hive-desktop/config/*"
+      - "*/.hive-desktop-onboarding/config/*"
     file:
       - .DS_Store
       - .gitignore
@@ -38,11 +59,11 @@ dev_mode:
     git_ignore: true
   executes:
     - cmd: wails3 build DEV=true
-      dir: desktop
+      dir: cmd/desktop
       type: blocking
     - cmd: wails3 task common:dev:frontend
-      dir: desktop
+      dir: cmd/desktop
       type: background
     - cmd: wails3 task run
-      dir: desktop
+      dir: cmd/desktop
       type: primary

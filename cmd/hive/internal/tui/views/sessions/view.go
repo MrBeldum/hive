@@ -8,25 +8,29 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colonyops/hive/pkg/logutils"
+	"github.com/rs/zerolog"
+
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/rs/zerolog/log"
 
+	act "github.com/colonyops/hive/cmd/hive/internal/action"
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/kvcache"
+	"github.com/colonyops/hive/cmd/hive/internal/plugins"
 	"github.com/colonyops/hive/cmd/hive/internal/styles"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components"
-	act "github.com/colonyops/hive/internal/core/action"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/eventbus"
-	"github.com/colonyops/hive/internal/core/git"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/core/terminal"
-	"github.com/colonyops/hive/internal/core/workspace"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/internal/hive/plugins"
-	"github.com/colonyops/hive/pkg/kv"
+	"github.com/colonyops/hive/internal/domain/session"
+	"github.com/colonyops/hive/internal/domain/terminal"
+	"github.com/colonyops/hive/internal/hive/events"
+	"github.com/colonyops/hive/internal/hive/gitstatus"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
+	statussvc "github.com/colonyops/hive/internal/hive/status"
+	"github.com/colonyops/hive/internal/platform/git"
+	"github.com/colonyops/hive/internal/platform/workspace"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 
@@ -39,18 +43,22 @@ var builderPool = sync.Pool{
 
 // ViewOpts configures a new sessions View.
 type ViewOpts struct {
+	// Logger carries no cmp label. The view adds its own.
+	Logger zerolog.Logger
+
 	// Required — nil causes a panic at construction time.
 	Cfg           *config.Config
-	Service       *hive.SessionService
+	Service       *sessionsvc.Service
 	Handler       KeyResolver
-	Status        *hive.StatusService
+	Status        *statussvc.Service
+	GitStatus     *gitstatus.Service
 	PluginManager *plugins.Manager
 
 	// Optional — nil disables the corresponding feature.
 	LocalRemote string
 	Workspaces  []string
 	Renderer    *tmpl.Renderer
-	Bus         *eventbus.EventBus
+	Bus         *events.EventBus
 }
 
 // View is the Bubble Tea sub-model for the sessions tab.
@@ -61,8 +69,11 @@ type View struct {
 	localRemote  string
 
 	cfg     *config.Config
-	service *hive.SessionService
-	bus     *eventbus.EventBus
+	service *sessionsvc.Service
+	bus     *events.EventBus
+
+	logger     zerolog.Logger
+	baseLogger zerolog.Logger // no cmp label; the workspace watcher adds its own
 
 	// List and tree rendering
 	list         list.Model
@@ -71,19 +82,19 @@ type View struct {
 	columnWidths *ColumnWidths
 
 	// Git integration
-	gitStatuses *kv.Store[string, GitStatus]
-	gitWorkers  int
+	gitStatuses *kvcache.Store[string, GitStatus]
+	gitStatus   *gitstatus.Service
 
 	// Terminal integration
-	status             *hive.StatusService
-	terminalStatuses   *kv.Store[string, hive.TerminalStatus]
+	status             *statussvc.Service
+	terminalStatuses   *kvcache.Store[string, statussvc.TerminalStatus]
 	previewEnabled     bool
 	previewTemplates   *PreviewTemplates
 	currentTmuxSession string
 
 	// Plugin integration
 	pluginManager      *plugins.Manager
-	pluginStatuses     map[string]*kv.Store[string, plugins.Status]
+	pluginStatuses     map[string]*kvcache.Store[string, plugins.Status]
 	pluginResultsChan  <-chan plugins.Result
 	pluginPollInterval time.Duration
 
@@ -119,19 +130,20 @@ type View struct {
 // initialized here so the parent Model can pass them through ViewOpts without
 // constructing them itself.
 func New(opts ViewOpts) *View {
-	if opts.Cfg == nil || opts.Service == nil || opts.Handler == nil || opts.Status == nil || opts.PluginManager == nil {
-		panic("sessions.New: Cfg, Service, Handler, Status, and PluginManager are required")
+	if opts.Cfg == nil || opts.Service == nil || opts.Handler == nil || opts.Status == nil || opts.GitStatus == nil || opts.PluginManager == nil {
+		panic("sessions.New: Cfg, Service, Handler, Status, GitStatus, and PluginManager are required")
 	}
 	cfg := opts.Cfg
+	logger := logutils.Component(opts.Logger, "tui.sessions")
 
-	gitStatuses := kv.New[string, GitStatus]()
-	terminalStatuses := kv.New[string, hive.TerminalStatus]()
+	gitStatuses := kvcache.New[string, GitStatus]()
+	terminalStatuses := kvcache.New[string, statussvc.TerminalStatus]()
 	columnWidths := &ColumnWidths{}
 
-	pluginStatuses := make(map[string]*kv.Store[string, plugins.Status])
+	pluginStatuses := make(map[string]*kvcache.Store[string, plugins.Status])
 	for _, p := range opts.PluginManager.EnabledPlugins() {
 		if p.StatusProvider() != nil {
-			pluginStatuses[p.Name()] = kv.New[string, plugins.Status]()
+			pluginStatuses[p.Name()] = kvcache.New[string, plugins.Status]()
 		}
 	}
 
@@ -169,7 +181,7 @@ func New(opts ViewOpts) *View {
 	cancelCurrent()
 	currentTmux := currentTarget.Session
 	if currentErr != nil {
-		log.Debug().Err(currentErr).Msg("tmux session detection failed")
+		logger.Debug().Err(currentErr).Msg("tmux session detection failed")
 	}
 
 	previewTemplates := ParsePreviewTemplates(
@@ -183,6 +195,8 @@ func New(opts ViewOpts) *View {
 	}
 
 	return &View{
+		logger:      logger,
+		baseLogger:  opts.Logger,
 		localRemote: opts.LocalRemote,
 		groupBy:     cfg.Views.Sessions.GroupBy,
 		cfg:         cfg,
@@ -195,7 +209,7 @@ func New(opts ViewOpts) *View {
 		columnWidths: columnWidths,
 
 		gitStatuses: gitStatuses,
-		gitWorkers:  cfg.Git.StatusWorkers,
+		gitStatus:   opts.GitStatus,
 
 		status:             opts.Status,
 		terminalStatuses:   terminalStatuses,
@@ -284,7 +298,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 
 func (v *View) handleSessionsLoaded(msg sessionsLoadedMsg) tea.Cmd {
 	if msg.err != nil {
-		log.Error().Err(msg.err).Msg("failed to load sessions")
+		v.logger.Error().Err(msg.err).Msg("failed to load sessions")
 		return ErrorCmd(fmt.Errorf("failed to load sessions: %w", msg.err))
 	}
 	v.allSessions = msg.sessions
@@ -295,7 +309,7 @@ func (v *View) handleSessionsLoaded(msg sessionsLoadedMsg) tea.Cmd {
 			sessions[i] = &v.allSessions[i]
 		}
 		v.pluginManager.UpdateSessions(sessions)
-		log.Debug().Int("sessionCount", len(sessions)).Msg("updated plugin manager sessions")
+		v.logger.Debug().Int("sessionCount", len(sessions)).Msg("updated plugin manager sessions")
 	}
 	// Immediately fetch terminal status so newly created sessions are detected
 	// without waiting for the next scheduled poll tick (up to 1500ms delay).
@@ -319,7 +333,7 @@ func (v *View) handleTerminalStatusComplete(msg TerminalStatusBatchCompleteMsg) 
 	if v.terminalStatuses != nil {
 		for sessionID, newStatus := range msg.Results {
 			if newStatus.Error != nil {
-				log.Debug().Err(newStatus.Error).Str("sessionID", sessionID).Msg("terminal status update contains error")
+				v.logger.Debug().Err(newStatus.Error).Str("sessionID", sessionID).Msg("terminal status update contains error")
 			}
 		}
 
@@ -335,7 +349,7 @@ func (v *View) handleTerminalStatusComplete(msg TerminalStatusBatchCompleteMsg) 
 					if sess == nil {
 						continue
 					}
-					v.bus.PublishAgentStatusChanged(eventbus.AgentStatusChangedPayload{
+					v.bus.PublishAgentStatusChanged(events.AgentStatusChangedPayload{
 						Session:   sess,
 						OldStatus: prevStatus,
 						NewStatus: newStatus.Status,
@@ -365,11 +379,11 @@ func (v *View) handleTerminalPollTick() tea.Cmd {
 }
 
 // rootRepoTargets collects workspace checkouts currently shown as repo headers.
-func (v *View) rootRepoTargets() []hive.RootRepoTarget {
-	var targets []hive.RootRepoTarget
+func (v *View) rootRepoTargets() []statussvc.RootRepoTarget {
+	var targets []statussvc.RootRepoTarget
 	for _, ti := range TreeItemsAll(v.list.Items()) {
 		if ti.IsHeader && ti.RootPath != "" {
-			targets = append(targets, hive.RootRepoTarget{Name: ti.RepoName, Path: ti.RootPath})
+			targets = append(targets, statussvc.RootRepoTarget{Name: ti.RepoName, Path: ti.RootPath})
 		}
 	}
 	return targets
@@ -377,20 +391,20 @@ func (v *View) rootRepoTargets() []hive.RootRepoTarget {
 
 func (v *View) handlePluginWorkerStarted(msg pluginWorkerStartedMsg) tea.Cmd {
 	v.pluginResultsChan = msg.resultsChan
-	log.Debug().Msg("plugin background worker started")
-	return listenForPluginResult(v.pluginResultsChan)
+	v.logger.Debug().Msg("plugin background worker started")
+	return listenForPluginResult(v.logger, v.pluginResultsChan)
 }
 
 func (v *View) handlePluginStatusUpdate(msg pluginStatusUpdateMsg) tea.Cmd {
 	if msg.Err != nil {
-		log.Warn().
+		v.logger.Warn().
 			Err(msg.Err).
 			Str("plugin", msg.PluginName).
 			Str("session", msg.SessionID).
 			Msg("plugin status update failed")
 	} else if store, ok := v.pluginStatuses[msg.PluginName]; ok {
 		store.Set(msg.SessionID, msg.Status)
-		log.Debug().
+		v.logger.Debug().
 			Str("plugin", msg.PluginName).
 			Str("session", msg.SessionID).
 			Str("label", msg.Status.Label).
@@ -398,7 +412,7 @@ func (v *View) handlePluginStatusUpdate(msg pluginStatusUpdateMsg) tea.Cmd {
 	}
 	v.treeDelegate.PluginStatuses = v.pluginStatuses
 	v.list.SetDelegate(v.treeDelegate)
-	return listenForPluginResult(v.pluginResultsChan)
+	return listenForPluginResult(v.logger, v.pluginResultsChan)
 }
 
 func (v *View) handleReposDiscovered(msg RepositoriesDiscoveredMsg) tea.Cmd {
@@ -421,7 +435,7 @@ func (v *View) handleReposDiscovered(msg RepositoriesDiscoveredMsg) tea.Cmd {
 
 func (v *View) handleWorkspaceWatcherStarted(msg WorkspaceWatcherStartedMsg) tea.Cmd {
 	if msg.Err != nil {
-		log.Warn().Err(msg.Err).Msg("failed to start workspace watcher; use WorkspaceRefresh to rescan manually")
+		v.logger.Warn().Err(msg.Err).Msg("failed to start workspace watcher; use WorkspaceRefresh to rescan manually")
 		return v.scanRepoDirs()
 	}
 	v.workspaceWatcher = msg.Watcher
@@ -436,7 +450,7 @@ func (v *View) handleWorkspaceChanged(msg WorkspaceChangedMsg) tea.Cmd {
 		return nil
 	}
 
-	log.Warn().Err(msg.Err).Msg("workspace watcher stopped; use WorkspaceRefresh to rescan manually")
+	v.logger.Warn().Err(msg.Err).Msg("workspace watcher stopped; use WorkspaceRefresh to rescan manually")
 	if v.workspaceWatcher != nil {
 		_ = v.workspaceWatcher.Close()
 		v.workspaceWatcher = nil
@@ -799,7 +813,7 @@ func (v *View) applyFilter() tea.Cmd {
 		return nil
 	}
 	// refreshing is cleared when GitStatusBatchCompleteMsg is received
-	return FetchGitStatusBatch(v.service.Git(), paths, v.gitWorkers)
+	return FetchGitStatusBatch(v.gitStatus, paths)
 }
 
 // rebuildWindowItems strips existing window sub-items from the list and re-expands
@@ -823,7 +837,7 @@ func (v *View) rebuildWindowItems() {
 		if !ti.IsSession() {
 			continue
 		}
-		if ts, ok := v.terminalStatuses.Get(ti.Session.ID); ok && hive.ShouldExposeWindows(ts.Windows) {
+		if ts, ok := v.terminalStatuses.Get(ti.Session.ID); ok && statussvc.ShouldExposeWindows(ts.Windows) {
 			for _, w := range ts.Windows {
 				expected["w\x1f"+ti.Session.ID+"\x1f"+w.WindowIndex+"\x1f"+w.WindowName] = struct{}{}
 				if len(w.Panes) > 1 {
@@ -880,7 +894,7 @@ func (v *View) expandWindowItems(items []list.Item) []list.Item {
 		}
 
 		ts, ok := v.terminalStatuses.Get(treeItem.Session.ID)
-		if !ok || !hive.ShouldExposeWindows(ts.Windows) {
+		if !ok || !statussvc.ShouldExposeWindows(ts.Windows) {
 			continue
 		}
 
@@ -1210,7 +1224,7 @@ func (v *View) renderRootRepoPreview(contentHeight, previewWidth int) string {
 		return header + "\n\n(current session, preventing recursive view)"
 	}
 
-	status, ok := v.terminalStatuses.Get(hive.RootStatusKey(ti.RootPath))
+	status, ok := v.terminalStatuses.Get(statussvc.RootStatusKey(ti.RootPath))
 	if !ok || status.PaneContent == "" {
 		return header + "\n\nNo pane content available"
 	}
@@ -1272,10 +1286,7 @@ func (v *View) isCurrentTmuxSession(sess *session.Session) bool {
 // statusMatchesFilter reports whether a published status satisfies a filter
 // value. "approval" includes question: question renders at the approval tier.
 func statusMatchesFilter(status terminal.Status, filter terminal.Status) bool {
-	if status == filter {
-		return true
-	}
-	return filter == terminal.StatusApproval && status == terminal.StatusQuestion
+	return status == filter || status.Simplified() == filter
 }
 
 // handleFilterAction checks if the action is a filter action and updates the status filter.
@@ -1301,7 +1312,7 @@ func (v *View) handleFilterAction(actionType act.Type) bool {
 
 // selectedPaneStatus returns the PaneStatus for the currently selected pane item,
 // or nil if a session/window is selected.
-func (v *View) selectedPaneStatus() *hive.PaneStatus {
+func (v *View) selectedPaneStatus() *statussvc.PaneStatus {
 	item := v.list.SelectedItem()
 	if item == nil {
 		return nil
@@ -1332,7 +1343,7 @@ func (v *View) selectedPaneStatus() *hive.PaneStatus {
 
 // selectedWindowStatus returns the WindowStatus for the currently selected window item,
 // or nil if a session (not a window) is selected.
-func (v *View) selectedWindowStatus() *hive.WindowStatus {
+func (v *View) selectedWindowStatus() *statussvc.WindowStatus {
 	item := v.list.SelectedItem()
 	if item == nil {
 		return nil
@@ -1371,9 +1382,9 @@ func (v *View) scanRepoDirs() tea.Cmd {
 	v.workspaceScanGeneration++
 	generation := v.workspaceScanGeneration
 	return func() tea.Msg {
-		repos, err := workspace.ScanRepoDirs(context.Background(), v.workspaces, v.service.Git())
+		repos, err := workspace.ScanRepoDirs(context.Background(), v.logger, v.workspaces, v.service.Git())
 		if err != nil {
-			log.Warn().Err(err).Msg("repo directory scan encountered errors")
+			v.logger.Warn().Err(err).Msg("repo directory scan encountered errors")
 		}
 		return RepositoriesDiscoveredMsg{Repositories: repos, Generation: generation, Err: err}
 	}
@@ -1381,7 +1392,7 @@ func (v *View) scanRepoDirs() tea.Cmd {
 
 func (v *View) startWorkspaceWatcher() tea.Cmd {
 	return func() tea.Msg {
-		watcher, err := workspace.NewWatcher(v.workspaces)
+		watcher, err := workspace.NewWatcher(v.baseLogger, v.workspaces)
 		return WorkspaceWatcherStartedMsg{Watcher: watcher, Err: err}
 	}
 }
@@ -1432,7 +1443,7 @@ func (v *View) RefreshGitStatuses() tea.Cmd {
 		return nil
 	}
 
-	return FetchGitStatusBatch(v.service.Git(), paths, v.gitWorkers)
+	return FetchGitStatusBatch(v.gitStatus, paths)
 }
 
 // scheduleSessionRefresh returns a command that schedules the next session refresh.
@@ -1522,7 +1533,7 @@ func (v *View) Close() {
 		return
 	}
 	if err := v.workspaceWatcher.Close(); err != nil && !errors.Is(err, workspace.ErrWatcherClosed) {
-		log.Debug().Err(err).Msg("failed to close workspace watcher")
+		v.logger.Debug().Err(err).Msg("failed to close workspace watcher")
 	}
 	v.workspaceWatcher = nil
 }
@@ -1588,17 +1599,17 @@ func (v *View) DiscoveredRepos() []workspace.DiscoveredRepo {
 }
 
 // TerminalStatuses returns the terminal status store.
-func (v *View) TerminalStatuses() *kv.Store[string, hive.TerminalStatus] {
+func (v *View) TerminalStatuses() *kvcache.Store[string, statussvc.TerminalStatus] {
 	return v.terminalStatuses
 }
 
 // GitStatuses returns the git status store.
-func (v *View) GitStatuses() *kv.Store[string, GitStatus] {
+func (v *View) GitStatuses() *kvcache.Store[string, GitStatus] {
 	return v.gitStatuses
 }
 
 // PluginStatuses returns the plugin status stores.
-func (v *View) PluginStatuses() map[string]*kv.Store[string, plugins.Status] {
+func (v *View) PluginStatuses() map[string]*kvcache.Store[string, plugins.Status] {
 	return v.pluginStatuses
 }
 
@@ -1740,14 +1751,14 @@ func IsFilterAction(t act.Type) bool {
 }
 
 // listenForPluginResult returns a command that waits for the next plugin result.
-func listenForPluginResult(ch <-chan plugins.Result) tea.Cmd {
+func listenForPluginResult(logger zerolog.Logger, ch <-chan plugins.Result) tea.Cmd {
 	if ch == nil {
 		return nil
 	}
 	return func() tea.Msg {
 		result, ok := <-ch
 		if !ok {
-			log.Debug().Msg("plugin results channel closed")
+			logger.Debug().Msg("plugin results channel closed")
 			return nil
 		}
 		return pluginStatusUpdateMsg{
@@ -1769,7 +1780,7 @@ func MaybeOverrideWindowDelete(action act.Action, treeItem *TreeItem) act.Action
 		return action
 	}
 
-	target := hive.SessionTarget(treeItem.ParentSession)
+	target := sessionsvc.Target(treeItem.ParentSession)
 	target.Window = treeItem.WindowIndex
 	if err := target.ValidateWindow(); err != nil {
 		action.Err = fmt.Errorf("unable to resolve tmux window target: %w", err)

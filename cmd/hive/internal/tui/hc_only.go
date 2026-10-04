@@ -7,24 +7,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	act "github.com/colonyops/hive/cmd/hive/internal/action"
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/plugins"
 	"github.com/colonyops/hive/cmd/hive/internal/styles"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/components"
 	"github.com/colonyops/hive/cmd/hive/internal/tui/views/tasks"
-	act "github.com/colonyops/hive/internal/core/action"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/hc"
-	corekv "github.com/colonyops/hive/internal/core/kv"
-	"github.com/colonyops/hive/internal/core/notify"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/internal/hive/plugins"
+	"github.com/colonyops/hive/internal/domain/hc"
+	corekv "github.com/colonyops/hive/internal/domain/kv"
+	"github.com/colonyops/hive/internal/domain/notify"
+	hcsvc "github.com/colonyops/hive/internal/hive/hc"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 
 // HoneycombOnlyOptions configures the honeycomb-only TUI.
 type HoneycombOnlyOptions struct {
-	Honeycomb *hive.HoneycombService
+	Logger    zerolog.Logger
+	Honeycomb *hcsvc.Service
 	RepoKey   string
 	Config    *config.Config
 	KVStore   corekv.KV
@@ -60,10 +63,10 @@ func NewHoneycombOnly(opts HoneycombOnlyOptions) HoneycombOnlyModel {
 	// Standalone honeycomb mode bypasses the plugin manager. Build a CommandSet
 	// directly so the resolver has a canonical registry to query.
 	commandSet := plugins.NewCommandSet(config.DefaultUserCommands(), cfg.UserCommands)
-	handler := NewKeybindingResolver(viewKBs, commandSet, opts.Renderer)
+	handler := NewKeybindingResolver(opts.Logger, viewKBs, commandSet, opts.Renderer)
 	handler.SetActiveView(ViewTasks)
 
-	tasksView := tasks.New(opts.Honeycomb, opts.RepoKey, handler, opts.KVStore, cfg.Views.Tasks.SplitRatio)
+	tasksView := tasks.New(opts.Logger, opts.Honeycomb, opts.RepoKey, handler, opts.KVStore, cfg.Views.Tasks.SplitRatio)
 	toastCtrl := NewToastController()
 	return HoneycombOnlyModel{
 		tasksView:       tasksView,

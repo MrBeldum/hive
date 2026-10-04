@@ -6,14 +6,16 @@ import (
 	"slices"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
-	"github.com/rs/zerolog/log"
+	"github.com/colonyops/hive/pkg/logutils"
+	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/internal/core/action"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/hive"
-	"github.com/colonyops/hive/internal/hive/plugins"
+	"charm.land/bubbles/v2/key"
+
+	"github.com/colonyops/hive/cmd/hive/internal/action"
+	"github.com/colonyops/hive/cmd/hive/internal/config"
+	"github.com/colonyops/hive/cmd/hive/internal/plugins"
+	"github.com/colonyops/hive/internal/domain/session"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 
@@ -38,6 +40,7 @@ func docTemplateValue(doc *DocTemplateData) DocTemplateData {
 // KeybindingResolver resolves keybindings to actions via UserCommands.
 // It handles resolution only - execution is handled by the command.Service.
 type KeybindingResolver struct {
+	logger                 zerolog.Logger
 	viewKeybindings        map[string]map[string]config.Keybinding // view name -> key -> binding
 	effectiveKeybindings   map[string]config.Keybinding            // merged global + active view
 	commandSet             *plugins.CommandSet
@@ -53,11 +56,13 @@ type KeybindingResolver struct {
 // call, so mutations from any goroutine become visible immediately without
 // rebuilding the resolver.
 func NewKeybindingResolver(
+	logger zerolog.Logger,
 	viewKeybindings map[string]map[string]config.Keybinding,
 	commandSet *plugins.CommandSet,
 	renderer *tmpl.Renderer,
 ) *KeybindingResolver {
 	r := &KeybindingResolver{
+		logger:          logutils.Component(logger, "tui.keybindings"),
 		viewKeybindings: viewKeybindings,
 		commandSet:      commandSet,
 		renderer:        renderer,
@@ -183,39 +188,24 @@ func (h *KeybindingResolver) commandFor(key string) (config.UserCommand, bool) {
 	return cmd, true
 }
 
-// renderUserCommandWindows renders a slice of WindowConfig templates against a UserCommand
-// data map, returning pre-rendered WindowSpec values for use in a SpawnWindows action.
-func renderUserCommandWindows(renderer *tmpl.Renderer, windows []config.WindowConfig, data map[string]any) ([]action.WindowSpec, error) {
-	rws, err := hive.RenderUserCommandWindows(renderer, windows, data)
-	if err != nil {
-		return nil, err
-	}
-	specs := make([]action.WindowSpec, len(rws))
-	for i, rw := range rws {
-		specs[i] = action.WindowSpec{Name: rw.Name, Command: rw.Command, Dir: rw.WorkingDirectory, Focus: rw.Focus}
-		if len(rw.Panes) > 0 {
-			specs[i].Panes = make([]action.PaneSpec, len(rw.Panes))
-			for j, p := range rw.Panes {
-				specs[i].Panes[j] = action.PaneSpec{Command: p.Command, Dir: p.WorkingDirectory, Size: p.Size, Split: string(p.Split)}
-			}
-		}
-	}
-	return specs, nil
-}
-
 // resolveWindowsAction builds a TypeSpawnWindows action from a UserCommand with windows.
 // It routes sh: to the appropriate location depending on whether options.session_name is set.
 func (h *KeybindingResolver) resolveWindowsAction(a Action, cmd config.UserCommand, sess session.Session, data map[string]any) Action {
 	a.Type = action.TypeSpawnWindows
 
-	windows, err := renderUserCommandWindows(h.renderer, cmd.Windows, data)
+	windows, err := sessionsvc.RenderUserCommandWindows(h.renderer, cmd.Windows, data)
 	if err != nil {
 		a.Err = fmt.Errorf("template error in windows: %w", err)
 		return a
 	}
 
-	// Build new-session request if options.session_name is set.
-	var newSess *action.NewSessionRequest
+	payload := &action.SpawnWindowsPayload{
+		Windows:    windows,
+		TmuxTarget: sess.Name,
+		SessionDir: sess.Path,
+		Background: cmd.Options.Background,
+	}
+
 	if cmd.Options.SessionName != "" {
 		sessionName, err := h.renderer.Render(cmd.Options.SessionName, data)
 		if err != nil {
@@ -231,36 +221,24 @@ func (h *KeybindingResolver) resolveWindowsAction(a Action, cmd config.UserComma
 			}
 			remote = rendered
 		}
-		newSess = &action.NewSessionRequest{Name: sessionName, Remote: remote}
+		payload.NewSession = true
+		payload.NewSessionName = sessionName
+		payload.NewSessionRemote = remote
 	}
 
-	// Render sh: and route it to the right location.
-	var shCmd, shDir string
 	if cmd.Sh != "" {
 		rendered, err := h.renderer.Render(cmd.Sh, data)
 		if err != nil {
 			a.Err = fmt.Errorf("template error in sh: %w", err)
 			return a
 		}
-		if newSess != nil {
-			// new-session mode: sh: runs after the git clone in the new session's path
-			newSess.ShCmd = rendered
-		} else {
-			// same-session mode: sh: runs in the selected session's path
-			shCmd = rendered
-			shDir = sess.Path
+		payload.ShCmd = rendered
+		if !payload.NewSession {
+			payload.ShDir = sess.Path
 		}
 	}
 
-	a.SpawnWindows = &action.SpawnWindowsPayload{
-		ShCmd:      shCmd,
-		ShDir:      shDir,
-		Windows:    windows,
-		TmuxTarget: sess.Name,
-		SessionDir: sess.Path,
-		Background: cmd.Options.Background,
-		NewSession: newSess,
-	}
+	a.SpawnWindows = payload
 	return a
 }
 
@@ -277,7 +255,7 @@ func (h *KeybindingResolver) Resolve(key string, sess session.Session) (Action, 
 	if !cmdExists {
 		// Command reference is invalid - validation should catch this,
 		// but log and return gracefully for debugging
-		log.Warn().Str("key", key).Str("cmd", kb.Cmd).Msg("keybinding references unknown command")
+		h.logger.Warn().Str("key", key).Str("cmd", kb.Cmd).Msg("keybinding references unknown command")
 		return Action{}, false
 	}
 
@@ -350,7 +328,7 @@ func (h *KeybindingResolver) Resolve(key string, sess session.Session) (Action, 
 			// Surface template error instead of masking it
 			a.Type = action.TypeShell
 			a.Err = fmt.Errorf("template error in command %q: %w", kb.Cmd, err)
-			log.Warn().Str("key", key).Str("cmd", kb.Cmd).Err(err).Msg("template rendering failed")
+			h.logger.Warn().Str("key", key).Str("cmd", kb.Cmd).Err(err).Msg("template rendering failed")
 			return a, true
 		}
 
@@ -374,7 +352,7 @@ func (h *KeybindingResolver) ResolveAction(key string) (Action, bool) {
 
 	cmd, cmdExists := h.commandSet.Lookup(kb.Cmd)
 	if !cmdExists {
-		log.Warn().Str("key", key).Str("cmd", kb.Cmd).Msg("keybinding references unknown command")
+		h.logger.Warn().Str("key", key).Str("cmd", kb.Cmd).Msg("keybinding references unknown command")
 		return Action{}, false
 	}
 
@@ -534,7 +512,7 @@ func (h *KeybindingResolver) ResolveUserCommand(name string, cmd config.UserComm
 	if err != nil {
 		a.Type = action.TypeShell
 		a.Err = fmt.Errorf("template error in command %q: %w", name, err)
-		log.Warn().Str("command", name).Err(err).Msg("template rendering failed")
+		h.logger.Warn().Str("command", name).Err(err).Msg("template rendering failed")
 		return a
 	}
 

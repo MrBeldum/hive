@@ -39,7 +39,7 @@ type Set struct {
 
 // ErrVersionTooNew is returned (errors.Is-able) when a document's version
 // exceeds Current: a file written by a newer build. Forward-only cannot
-// downgrade it. It is a plain sentinel — configmigrate never imports package
+// downgrade it. It is a plain sentinel — this package never imports package
 // app and does no Kind mapping.
 var ErrVersionTooNew = errors.New("config version is newer than this build supports")
 

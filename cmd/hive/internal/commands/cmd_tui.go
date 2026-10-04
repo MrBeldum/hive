@@ -6,23 +6,24 @@ import (
 	"os"
 	"time"
 
+	"github.com/colonyops/hive/pkg/logutils"
+
 	tea "charm.land/bubbletea/v2"
-	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 
+	"github.com/colonyops/hive/cmd/hive/internal/app"
 	"github.com/colonyops/hive/cmd/hive/internal/tui"
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/hive"
+	hiveconfig "github.com/colonyops/hive/internal/config"
 	"github.com/colonyops/hive/pkg/profiler"
 )
 
 type TuiCmd struct {
 	flags *Flags
-	app   *hive.App
+	app   *app.App
 }
 
 // NewTuiCmd creates a new tui command
-func NewTuiCmd(flags *Flags, app *hive.App) *TuiCmd {
+func NewTuiCmd(flags *Flags, app *app.App) *TuiCmd {
 	return &TuiCmd{
 		flags: flags,
 		app:   app,
@@ -52,12 +53,14 @@ func (cmd *TuiCmd) run(ctx context.Context, _ *cli.Command) error {
 		warnings = append(warnings, "Not running inside tmux. Some features (preview, spawn) require tmux.")
 	}
 	if _, err := os.Stat(cmd.flags.ConfigPath); cmd.flags.ConfigPath == "" || os.IsNotExist(err) {
-		warnings = append(warnings, "No config file found. Expected location: "+config.DefaultConfigDir())
+		warnings = append(warnings, "No config file found. Expected location: "+hiveconfig.DefaultConfigDir())
 	}
+
+	logger := logutils.Component(cmd.app.Logger, "cli.tui")
 
 	// Start profiler server if enabled
 	if cmd.flags.ProfilerPort > 0 {
-		profServer := profiler.New(cmd.flags.ProfilerPort)
+		profServer := profiler.New(cmd.app.Logger, cmd.flags.ProfilerPort)
 		if err := profServer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start profiler: %w", err)
 		}
@@ -65,38 +68,40 @@ func (cmd *TuiCmd) run(ctx context.Context, _ *cli.Command) error {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := profServer.Shutdown(shutdownCtx); err != nil {
-				log.Error().Err(err).Msg("failed to shutdown profiler server")
+				logger.Error().Err(err).Msg("failed to shutdown profiler server")
 			}
 		}()
-		log.Info().
+		logger.Info().
 			Str("url", fmt.Sprintf("http://%s/debug/pprof/", profServer.Addr())).
 			Msg("profiler endpoint available")
 	}
 
 	// Detect current repository remote for highlighting current repo
-	localRemote, _ := cmd.app.Sessions.DetectRemote(ctx, ".")
+	localRemote, _ := cmd.app.Sessions().DetectRemote(ctx, ".")
 
 	source, _ := os.Getwd()
 
 	deps := tui.Deps{
+		Logger:        cmd.app.Logger,
 		Config:        cmd.app.Config,
-		Service:       cmd.app.Sessions,
-		MsgStore:      cmd.app.Messages,
-		TodoService:   cmd.app.Todos,
-		Bus:           cmd.app.Bus,
-		Status:        cmd.app.Status,
+		Service:       cmd.app.Sessions(),
+		MsgStore:      cmd.app.Messages(),
+		TodoService:   cmd.app.Todos(),
+		Bus:           cmd.app.Bus(),
+		Status:        cmd.app.Status(),
+		GitStatus:     cmd.app.GitStatus(),
 		PluginManager: cmd.app.Plugins,
 		CommandSet:    cmd.app.CommandSet,
-		DB:            cmd.app.DB,
+		DB:            cmd.app.DB(),
 		KVStore:       cmd.app.KV,
-		Renderer:      cmd.app.Renderer,
+		Renderer:      cmd.app.Renderer(),
 		BuildInfo: tui.BuildInfo{
 			Version: cmd.app.Build.Version,
 			Commit:  cmd.app.Build.Commit,
 			Date:    cmd.app.Build.Date,
 		},
 		DoctorService: cmd.app.Doctor,
-		Honeycomb:     cmd.app.Honeycomb,
+		Honeycomb:     cmd.app.HC(),
 		Sources:       cmd.app.Sources,
 	}
 	opts := tui.Opts{
@@ -106,7 +111,7 @@ func (cmd *TuiCmd) run(ctx context.Context, _ *cli.Command) error {
 		ConfigPath:  cmd.flags.ConfigPath,
 	}
 
-	restoreOutput := cmd.app.Sessions.SilenceOutput()
+	restoreOutput := cmd.app.Sessions().SilenceOutput()
 
 	m := tui.New(deps, opts)
 	p := tea.NewProgram(m)

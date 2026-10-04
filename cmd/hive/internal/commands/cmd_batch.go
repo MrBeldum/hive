@@ -5,24 +5,26 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/core/validate"
-	"github.com/colonyops/hive/internal/hive"
+	"github.com/colonyops/hive/pkg/logutils"
+
+	"github.com/colonyops/hive/cmd/hive/internal/app"
+	"github.com/colonyops/hive/internal/domain/session"
+	"github.com/colonyops/hive/internal/domain/validate"
+	sessionsvc "github.com/colonyops/hive/internal/hive/session"
 	"github.com/colonyops/hive/pkg/iojson"
 	"github.com/colonyops/hive/pkg/randid"
 	"github.com/hay-kot/criterio"
-	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 )
 
 type BatchCmd struct {
 	flags *Flags
-	app   *hive.App
+	app   *app.App
 	fr    *iojson.FileReader[BatchInput]
 	agent string
 }
 
-func NewBatchCmd(flags *Flags, app *hive.App) *BatchCmd {
+func NewBatchCmd(flags *Flags, app *app.App) *BatchCmd {
 	return &BatchCmd{
 		flags: flags,
 		app:   app,
@@ -105,7 +107,7 @@ Log entries are written to the shared hive log file, tagged with a
 func (cmd *BatchCmd) run(ctx context.Context, c *cli.Command) error {
 	batchID := randid.Generate(6)
 
-	logger := log.With().Str("batch", batchID).Logger()
+	logger := logutils.Component(cmd.app.Logger, "cli.batch").With().Str("batch", batchID).Logger()
 
 	logger.Info().Msg("starting batch processing")
 
@@ -201,7 +203,7 @@ func (cmd *BatchCmd) createSession(ctx context.Context, sess BatchSession) Batch
 		}
 	}
 
-	opts := hive.CreateOptions{
+	opts := sessionsvc.CreateOptions{
 		Name:          sess.Name,
 		SessionID:     sess.SessionID,
 		Prompt:        sess.Prompt,
@@ -213,7 +215,7 @@ func (cmd *BatchCmd) createSession(ctx context.Context, sess BatchSession) Batch
 		Tags:          sess.Tags,
 	}
 
-	created, err := cmd.app.Sessions.CreateSession(ctx, opts)
+	created, err := cmd.app.Sessions().CreateSession(ctx, opts)
 	if err != nil {
 		return BatchResult{
 			Name:   sess.Name,
