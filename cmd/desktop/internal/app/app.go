@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/colonyops/hive/internal/hive/prompt"
 	"github.com/colonyops/hive/pkg/logutils"
 
 	"github.com/rs/zerolog"
@@ -212,10 +211,8 @@ type App struct {
 	webhookPort int
 
 	// hive owns the config-derived services and swaps them on Reload.
-	hive *hive.Engine
-	// hiveInput types into tmux panes for the orchestrator.
-	hiveInput prompt.PaneInput
-	launcher  *dispatch.RepositoryLauncher
+	hive     *hive.Engine
+	launcher *dispatch.RepositoryLauncher
 
 	hiveDataDir string
 	// reloadMu serializes ReloadHiveRuntime, so the engine, the agent command
@@ -517,12 +514,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Launcher: a.launcher,
 		Sessions: a.Sessions,
 		Hive:     func() hiveSessions { return a.hive.Sessions() },
-		Prompts: prompt.NewService(func() prompt.AgentPaneFinder {
-			if term := a.hive.Terminal(); term != nil {
-				return term
-			}
-			return nil
-		}, a.hiveInput),
+		Prompts:  a.hive.Prompts(),
 		Messages: func() messageBus { return a.hive.Messages() },
 		Auth:     a.AgentWorkspaces,
 		Tokens:   a.Stores.OrchestratorTokens,
@@ -1257,12 +1249,13 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	}
 	tmuxClient := tmuxexec.New(a.logger, newTmuxRunner(tmuxBinary, a.execEnv.Environ))
 	ports := hive.Ports{
-		DB:       database,
-		Bus:      bus,
-		Executor: newEnvExecutor(a.execEnv),
-		Mux:      hiveMultiplexer{Client: tmuxClient, renamer: a.terminals},
-		DataDir:  dataDir,
-		Logger:   a.logger,
+		DB:        database,
+		Bus:       bus,
+		Executor:  newEnvExecutor(a.execEnv),
+		Mux:       hiveMultiplexer{Client: tmuxClient, renamer: a.terminals},
+		PaneInput: tmuxClient,
+		DataDir:   dataDir,
+		Logger:    a.logger,
 	}
 	// Mock modes have no tmux to read, so status stays off.
 	if a.mock == "" {
@@ -1275,7 +1268,6 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("start hive engine: %w", err)
 	}
 	a.hive = engine
-	a.hiveInput = tmuxClient
 	a.hiveBusCancel = cancel
 	a.agentCommands.Store(new(agentCommands(hiveCfg)))
 	a.launcher = dispatch.NewRepositoryLauncher(

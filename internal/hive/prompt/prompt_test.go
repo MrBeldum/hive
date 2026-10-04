@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,24 +30,41 @@ func (f *fakeFinder) DiscoverSession(context.Context, string, map[string]string)
 	return f.info, nil, nil
 }
 
-// fakeAgent renders a Claude Code style prompt and drops the first
-// dropEnters Enters, the way a real agent does while it is still rendering.
-// fakeAgent renders a Claude Code style prompt and drops the first
-// dropEnters Enters, the way a real agent does while it is still rendering.
+// fakeAgent renders a Claude Code style prompt. Typed text shows only after
+// renderAfter captures, and an Enter that arrives before then is dropped, the
+// way a real agent drops one while it is still rendering. dropEnters drops
+// that many more. spinner changes the screen above the box on every capture.
 type fakeAgent struct {
-	input      string
-	submitted  []string
-	dropEnters int
-	dialog     bool
-	keys       []string
-	pasted     bool
+	input       string
+	rendering   string
+	renderAfter int
+	renderIn    int
+	submitted   []string
+	dropEnters  int
+	dialog      bool
+	spinner     bool
+	frames      int
+	captures    int
+	keys        []string
+	pasted      bool
 }
 
 func (a *fakeAgent) CapturePane(context.Context, multiplexer.Target, multiplexer.CaptureOptions) (string, error) {
+	a.captures++
+	if a.rendering != "" {
+		if a.renderIn--; a.renderIn <= 0 {
+			a.input += a.rendering
+			a.rendering = ""
+		}
+	}
 	if a.dialog {
 		return "Bash command\n\n  rm -rf build\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No, and tell Claude what to do differently\n", nil
 	}
 	var b strings.Builder
+	if a.spinner {
+		a.frames++
+		fmt.Fprintf(&b, "✻ Thinking… (%ds)\n\n", a.frames)
+	}
 	for _, s := range a.submitted {
 		b.WriteString("❯ " + s + "\n\n⏺ done\n\n")
 	}
@@ -58,14 +76,23 @@ func (a *fakeAgent) CapturePane(context.Context, multiplexer.Target, multiplexer
 }
 
 func (a *fakeAgent) SendLiteral(_ context.Context, _ multiplexer.Target, text string) error {
-	a.input += text
+	a.typeIn(text)
 	return nil
 }
 
 func (a *fakeAgent) Paste(_ context.Context, _ multiplexer.Target, _ []byte, _ multiplexer.PasteOptions) error {
 	a.pasted = true
-	a.input += "[Pasted text #1 +1 lines]"
+	a.typeIn("[Pasted text #1 +1 lines]")
 	return nil
+}
+
+func (a *fakeAgent) typeIn(text string) {
+	if a.renderAfter == 0 {
+		a.input += text
+		return
+	}
+	a.rendering += text
+	a.renderIn = a.renderAfter
 }
 
 func (a *fakeAgent) SendKey(_ context.Context, _ multiplexer.Target, key multiplexer.NamedKey) error {
@@ -75,6 +102,9 @@ func (a *fakeAgent) SendKey(_ context.Context, _ multiplexer.Target, key multipl
 	}
 	if a.dialog {
 		a.dialog = false
+		return nil
+	}
+	if a.rendering != "" {
 		return nil
 	}
 	if a.dropEnters > 0 {
@@ -107,6 +137,31 @@ func TestServiceSendPressesEnterOnce(t *testing.T) {
 	assert.Equal(t, []string{"/research the auth flow"}, agent.submitted)
 	assert.Equal(t, "%3", peek.Pane)
 	assert.Contains(t, peek.Tail, "⏺ done")
+}
+
+func TestServiceSendWaitsForTheTextToRender(t *testing.T) {
+	agent := &fakeAgent{renderAfter: 3}
+	svc := newTestService(agent, claudePane)
+
+	_, err := svc.Send(context.Background(), session.Session{Slug: "s"}, "slow terminal", SendOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Enter"}, agent.keys)
+	assert.Equal(t, []string{"slow terminal"}, agent.submitted, "Enter waits until the box shows the text")
+}
+
+func TestServiceSendSettlesOnTheInputBoxWhileTheAgentWorks(t *testing.T) {
+	agent := &fakeAgent{spinner: true}
+	svc := newTestService(agent, claudePane)
+	svc.timing = DefaultSubmitTiming
+	var slept time.Duration
+	svc.sleep = func(_ context.Context, d time.Duration) error {
+		slept += d
+		return nil
+	}
+
+	_, err := svc.Send(context.Background(), session.Session{Slug: "s"}, "queue this", SendOptions{NoSubmit: true})
+	require.NoError(t, err)
+	assert.Less(t, slept, DefaultSubmitTiming.SettleMax, "a spinner above the box does not hold off the settle")
 }
 
 func TestServiceSendReportsADroppedEnter(t *testing.T) {

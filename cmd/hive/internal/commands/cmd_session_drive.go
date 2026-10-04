@@ -10,7 +10,6 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/colonyops/hive/cmd/hive/internal/app"
 	"github.com/colonyops/hive/internal/domain/session"
 	"github.com/colonyops/hive/internal/hive/prompt"
 	"github.com/colonyops/hive/pkg/iojson"
@@ -57,7 +56,7 @@ func (cmd *SessionCmd) runSend(ctx context.Context, c *cli.Command) error {
 	if len(args) < 2 {
 		return errors.New("usage: hive session send <id|name> <text...>")
 	}
-	sess, err := resolveSession(ctx, cmd.app, args[0])
+	sess, err := resolveSession(ctx, cmd.app.Sessions(), args[0])
 	if err != nil {
 		return err
 	}
@@ -69,7 +68,7 @@ func (cmd *SessionCmd) runSend(ctx context.Context, c *cli.Command) error {
 		}
 		text = strings.TrimRight(string(data), "\n")
 	}
-	peek, err := cmd.app.Prompts.Send(ctx, sess, text, prompt.SendOptions{NoSubmit: cmd.drive.noSubmit, Lines: cmd.drive.lines})
+	peek, err := cmd.app.Prompts().Send(ctx, sess, text, prompt.SendOptions{NoSubmit: cmd.drive.noSubmit, Lines: cmd.drive.lines})
 	if err != nil {
 		return fmt.Errorf("send to %s: %w", sess.Name, err)
 	}
@@ -94,11 +93,11 @@ func (cmd *SessionCmd) runKeys(ctx context.Context, c *cli.Command) error {
 	if len(args) < 2 {
 		return errors.New("usage: hive session keys <id|name> <key...>")
 	}
-	sess, err := resolveSession(ctx, cmd.app, args[0])
+	sess, err := resolveSession(ctx, cmd.app.Sessions(), args[0])
 	if err != nil {
 		return err
 	}
-	peek, err := cmd.app.Prompts.SendKeys(ctx, sess, args[1:], cmd.drive.lines)
+	peek, err := cmd.app.Prompts().SendKeys(ctx, sess, args[1:], cmd.drive.lines)
 	if err != nil {
 		return fmt.Errorf("send keys to %s: %w", sess.Name, err)
 	}
@@ -123,11 +122,11 @@ func (cmd *SessionCmd) runPeek(ctx context.Context, c *cli.Command) error {
 	if key == "" {
 		return errors.New("usage: hive session peek <id|name>")
 	}
-	sess, err := resolveSession(ctx, cmd.app, key)
+	sess, err := resolveSession(ctx, cmd.app.Sessions(), key)
 	if err != nil {
 		return err
 	}
-	peek, err := cmd.app.Prompts.Peek(ctx, sess, cmd.drive.lines)
+	peek, err := cmd.app.Prompts().Peek(ctx, sess, cmd.drive.lines)
 	if err != nil {
 		return fmt.Errorf("peek %s: %w", sess.Name, err)
 	}
@@ -150,15 +149,20 @@ func (cmd *SessionCmd) writePeek(c *cli.Command, sess session.Session, peek prom
 	return nil
 }
 
+type sessionLookup interface {
+	GetSession(ctx context.Context, id string) (session.Session, error)
+	ListSessions(ctx context.Context) ([]session.Session, error)
+}
+
 // resolveSession tries the ID, then an exact name or slug among active sessions.
-func resolveSession(ctx context.Context, a *app.App, key string) (session.Session, error) {
-	if sess, err := a.Sessions().GetSession(ctx, key); err == nil {
+func resolveSession(ctx context.Context, sessions sessionLookup, key string) (session.Session, error) {
+	if sess, err := sessions.GetSession(ctx, key); err == nil {
 		return sess, nil
 	} else if !errors.Is(err, session.ErrNotFound) {
 		return session.Session{}, fmt.Errorf("get session: %w", err)
 	}
 
-	all, err := a.Sessions().ListSessions(ctx)
+	all, err := sessions.ListSessions(ctx)
 	if err != nil {
 		return session.Session{}, fmt.Errorf("list sessions: %w", err)
 	}

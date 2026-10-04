@@ -5,8 +5,6 @@ package app
 import (
 	"context"
 
-	"github.com/colonyops/hive/internal/hive/prompt"
-
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/cmd/hive/internal/config"
@@ -51,7 +49,6 @@ type App struct {
 	Config      *config.Config
 	Doctor      *doctor.Service
 	Multiplexer Multiplexer
-	Prompts     *prompt.Service
 	Plugins     *plugins.Manager
 	CommandSet  *plugins.CommandSet
 	KV          kv.KV
@@ -78,14 +75,8 @@ func NewApp(
 		Config:      cfg,
 		Doctor:      engine.Doctor(cfg, pluginInfos),
 		Multiplexer: multiplexer,
-		Prompts: prompt.NewService(func() prompt.AgentPaneFinder {
-			if term := engine.Terminal(); term != nil {
-				return term
-			}
-			return nil
-		}, multiplexer),
-		Plugins:    pluginMgr,
-		CommandSet: commandSet,
-		KV:         kvStore,
+		Plugins:     pluginMgr,
+		CommandSet:  commandSet,
+		KV:          kvStore,
 	}
 }
