@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -603,7 +602,7 @@ func (m *Manager) remove(slug string, gen uint64) {
 }
 
 func tmuxVersion(ctx context.Context, binary string) (string, error) {
-	out, err := exec.CommandContext(ctx, binary, "-V").Output()
+	out, _, err := oneShotRunner(binary, nil).Capture(ctx, "-V")
 	if err != nil {
 		return "", err
 	}

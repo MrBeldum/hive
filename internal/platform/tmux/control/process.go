@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	tmuxexec "github.com/colonyops/hive/internal/platform/tmux/exec"
 	"github.com/colonyops/hive/pkg/executil"
 )
 
@@ -112,16 +113,13 @@ func (p *execProcess) Kill() error {
 	return cmd.Process.Kill()
 }
 
-// runTmux runs a one-shot tmux command against the same server the control
-// clients attach to — see Start for why the socket is passed explicitly —
-// returning stdout as lines and folding tmux's own complaint into the error,
-// since that is all a failed has-session or rename-session reports.
+// runTmux runs a one-shot tmux command and returns stdout as lines.
 //
 // env is what the command client runs with, and a new-session's pane inherits
 // it: a tmux pane takes its environment from the client that created it, so
 // this is the only place the app can put anything on an agent's PATH.
 func runTmux(ctx context.Context, binary string, env []string, args ...string) ([]string, error) {
-	out, err := outputTmux(ctx, binary, env, args...)
+	out, _, err := oneShotRunner(binary, env).Capture(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -132,50 +130,24 @@ func runTmux(ctx context.Context, binary string, env []string, args ...string) (
 	return strings.Split(trimmed, "\n"), nil
 }
 
-// inputTmux runs a one-shot tmux command with content on its stdin. It exists
-// for load-buffer, the one command this package runs that carries arbitrary
-// bytes rather than arguments: passing pasted text as an argument would publish
-// it in the process table, where anything running as this user can read it.
+// inputTmux exists for load-buffer: pasted text passed as an argument would be
+// readable in the process table by anything running as this user.
 func inputTmux(ctx context.Context, binary string, env []string, stdin io.Reader, args ...string) error {
-	if binary == "" {
-		binary = defaultBinary
-	}
-	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
-		args = append([]string{"-S", socket}, args...)
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = withoutTmuxClient(env)
-	cmd.Stdin = stdin
-	stderr := &executil.HeadWriter{Max: 4 << 10}
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("%w: %s", err, msg)
-		}
-		return err
-	}
-	return nil
+	_, _, err := oneShotRunner(binary, env).Input(ctx, stdin, args...)
+	return err
 }
 
-func outputTmux(ctx context.Context, binary string, env []string, args ...string) ([]byte, error) {
+// oneShotRunner targets the server the control clients attach to; see Start
+// for why the socket is passed explicitly.
+func oneShotRunner(binary string, env []string) tmuxexec.Runner {
 	if binary == "" {
 		binary = defaultBinary
 	}
-	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
-		args = append([]string{"-S", socket}, args...)
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = withoutTmuxClient(env)
-	stderr := &executil.HeadWriter{Max: 4 << 10}
-	cmd.Stderr = stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("%w: %s", err, msg)
-		}
-		return nil, err
-	}
-	return out, nil
+	return tmuxexec.NewExecRunner(tmuxexec.ExecRunnerOptions{
+		Binary:      func(context.Context) (string, error) { return binary, nil },
+		Environ:     func(context.Context) []string { return withoutTmuxClient(env) },
+		PrepareArgs: RunnerArgs,
+	})
 }
 
 // socketFromTMUX extracts the server socket path from a $TMUX value
