@@ -14,6 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/colonyops/hive/internal/hive/prompt"
+	"github.com/colonyops/hive/pkg/logutils"
+
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/actions"
@@ -90,19 +93,22 @@ type App struct {
 	// The per-domain services. Driving adapters call these — never the
 	// unexported domain stores further down, which is what they are built
 	// over.
-	Inbox      *InboxService
-	Sessions   *SessionsService
-	Flows      *FlowsService
-	Actions    *ActionsService
-	Settings   *SettingsService
-	MenuBar    *MenuBarService
-	System     *SystemService
-	HiveConfig *HiveConfigService
-	Webhooks   *WebhookService
-	GitHub     *GitHubService
-	Gitea      *GiteaService
-	Grafana    *GrafanaService
-	PostHog    *PostHogService
+	Inbox    *InboxService
+	Sessions *SessionsService
+	// Orchestration is the session control the hive-orchestrator MCP
+	// server drives.
+	Orchestration *OrchestrationService
+	Flows         *FlowsService
+	Actions       *ActionsService
+	Settings      *SettingsService
+	MenuBar       *MenuBarService
+	System        *SystemService
+	HiveConfig    *HiveConfigService
+	Webhooks      *WebhookService
+	GitHub        *GitHubService
+	Gitea         *GiteaService
+	Grafana       *GrafanaService
+	PostHog       *PostHogService
 	// Integrations lists the connector registry with each entry's connection
 	// state. Generic; GitHub, Gitea, Grafana and PostHog above are the
 	// provider-specific acquisition halves.
@@ -206,8 +212,10 @@ type App struct {
 	webhookPort int
 
 	// hive owns the config-derived services and swaps them on Reload.
-	hive     *hive.Engine
-	launcher *dispatch.RepositoryLauncher
+	hive *hive.Engine
+	// hiveInput types into tmux panes for the orchestrator.
+	hiveInput prompt.PaneInput
+	launcher  *dispatch.RepositoryLauncher
 
 	hiveDataDir string
 	// reloadMu serializes ReloadHiveRuntime, so the engine, the agent command
@@ -504,6 +512,23 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		ExecEnv:         a.execEnv,
 		EditorCommand:   a.Settings,
 		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
+	})
+	a.Orchestration = newOrchestrationService(OrchestrationDeps{
+		Launcher: a.launcher,
+		Sessions: a.Sessions,
+		Hive:     func() hiveSessions { return a.hive.Sessions() },
+		Prompts: prompt.NewService(func() prompt.AgentPaneFinder {
+			if term := a.hive.Terminal(); term != nil {
+				return term
+			}
+			return nil
+		}, a.hiveInput),
+		Messages: func() messageBus { return a.hive.Messages() },
+		Auth:     a.AgentWorkspaces,
+		Tokens:   a.Stores.OrchestratorTokens,
+		MCPBase:  a,
+		Done:     a.ctx.Done(),
+		Logger:   logutils.Component(cfg.Logger, "orchestration"),
 	})
 	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir, Logger: cfg.Logger})
 	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
@@ -897,10 +922,10 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 	if err := agentws.SeedDefaultsIfMissing(root); err != nil {
 		logger.Warn().Err(err).Msg("agent workspace defaults seed failed")
 	}
-	if created {
-		if err := agentws.SeedHiveWorkspace(root); err != nil {
-			logger.Warn().Err(err).Msg("hive workspace seed failed")
-		}
+	if seeded, err := agentws.SeedShippedWorkspaces(root, created); err != nil {
+		logger.Warn().Err(err).Strs("seeded", seeded).Msg("shipped workspace seed failed")
+	} else if len(seeded) > 0 {
+		logger.Info().Strs("seeded", seeded).Msg("seeded shipped agent workspaces")
 	}
 
 	a.agentWorkspaceStore = agentws.NewStore(root)
@@ -1250,6 +1275,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("start hive engine: %w", err)
 	}
 	a.hive = engine
+	a.hiveInput = tmuxClient
 	a.hiveBusCancel = cancel
 	a.agentCommands.Store(new(agentCommands(hiveCfg)))
 	a.launcher = dispatch.NewRepositoryLauncher(

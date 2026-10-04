@@ -85,3 +85,84 @@ func TestSeedCreatesTheHiveWorkspaceOnRootCreation(t *testing.T) {
 	_, err = os.Stat(filepath.Join(root, "hive", "AGENTS.md"))
 	require.NoError(t, err)
 }
+
+func TestSeedOrchestratorWorkspace(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, SeedOrchestratorWorkspace(root))
+
+	ws, err := LoadWorkspace(filepath.Join(root, OrchestratorWorkspaceDir, manifestFileName))
+	require.NoError(t, err)
+	require.NoError(t, ws.Validate())
+	assert.Equal(t, PresetCommand("claude-ask"), ws.Command)
+	assert.False(t, CommandIsDangerous(ws.Command), "the seeded orchestrator must not ship a permission bypass")
+	assert.Equal(t, []string{mcpcatalog.Orchestrator, "hive-desktop"}, ws.MCPs)
+	for _, id := range ws.MCPs {
+		_, ok := mcpcatalog.Lookup(id)
+		assert.True(t, ok, "seeded MCP %q is not in the shipped catalogue", id)
+	}
+
+	agents, err := os.ReadFile(filepath.Join(root, OrchestratorWorkspaceDir, "AGENTS.md"))
+	require.NoError(t, err)
+	for _, tool := range []string{"start_session", "send_prompt", "send_keys", "wait_for_session", "wait_for_message"} {
+		assert.Contains(t, string(agents), tool, "AGENTS.md should teach %s", tool)
+	}
+}
+
+func TestSeedShippedWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	exists := func(t *testing.T, root, dir string) bool {
+		t.Helper()
+		_, err := os.Stat(filepath.Join(root, dir))
+		return err == nil
+	}
+
+	t.Run("a new root gets every shipped workspace", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		seeded, err := SeedShippedWorkspaces(root, true)
+		require.NoError(t, err)
+		assert.Equal(t, []string{HiveWorkspaceDir, OrchestratorWorkspaceDir}, seeded)
+	})
+
+	t.Run("an existing root gets only what was added since", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		seeded, err := SeedShippedWorkspaces(root, false)
+		require.NoError(t, err)
+		assert.Equal(t, []string{OrchestratorWorkspaceDir}, seeded)
+		assert.False(t, exists(t, root, HiveWorkspaceDir), "a pre-marker root already had its chance at hive")
+	})
+
+	t.Run("a deleted workspace stays deleted", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		_, err := SeedShippedWorkspaces(root, true)
+		require.NoError(t, err)
+		require.NoError(t, os.RemoveAll(filepath.Join(root, OrchestratorWorkspaceDir)))
+
+		seeded, err := SeedShippedWorkspaces(root, false)
+		require.NoError(t, err)
+		assert.Empty(t, seeded)
+		assert.False(t, exists(t, root, OrchestratorWorkspaceDir))
+	})
+
+	t.Run("a user directory with the same name is never written to", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		mine := filepath.Join(root, OrchestratorWorkspaceDir)
+		require.NoError(t, os.MkdirAll(mine, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(mine, "AGENTS.md"), []byte("my own"), 0o600))
+
+		seeded, err := SeedShippedWorkspaces(root, false)
+		require.NoError(t, err)
+		assert.Empty(t, seeded)
+		data, err := os.ReadFile(filepath.Join(mine, "AGENTS.md"))
+		require.NoError(t, err)
+		assert.Equal(t, "my own", string(data))
+		_, err = os.Stat(filepath.Join(mine, manifestFileName))
+		assert.True(t, os.IsNotExist(err))
+	})
+}

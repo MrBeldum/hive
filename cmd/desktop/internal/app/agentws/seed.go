@@ -1,12 +1,16 @@
 package agentws
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/configmigrate"
+	"github.com/colonyops/hive/cmd/desktop/internal/app/mcpcatalog"
 )
 
 const defaultMCPsYAML = `version: 1
@@ -166,10 +170,6 @@ follow. A closing tag with a different id, or none, does not end the fence.
 // first launch. Its skills: list names the seeded hive package rather than
 // individual skills, so a release that adds or removes a shipped skill
 // changes what this workspace carries with no edit to the manifest.
-//
-// Callers must invoke this only when EnsureRoot creates root for the first
-// time, never on every open: deleting the workspace must leave it deleted
-// (spec §14), and reseeding on every launch would contradict that.
 func SeedHiveWorkspace(root string) error {
 	dir := filepath.Join(root, HiveWorkspaceDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -182,4 +182,104 @@ func SeedHiveWorkspace(root string) error {
 		return fmt.Errorf("write hive workspace AGENTS.md: %w", err)
 	}
 	return nil
+}
+
+const OrchestratorWorkspaceDir = "orchestrator"
+
+var orchestratorWorkspaceYAML = fmt.Sprintf(`version: %d
+name: Orchestrator
+command: %s
+mcps:
+  - %s
+  - hive-desktop
+`, configmigrate.AgentWorkspaceSet.Current, PresetCommand("claude-ask"), mcpcatalog.Orchestrator)
+
+//go:embed seed/orchestrator-AGENTS.md
+var orchestratorAgentsMD string
+
+func SeedOrchestratorWorkspace(root string) error {
+	dir := filepath.Join(root, OrchestratorWorkspaceDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create orchestrator workspace dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, manifestFileName), []byte(orchestratorWorkspaceYAML), 0o600); err != nil {
+		return fmt.Errorf("write orchestrator workspace manifest: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(orchestratorAgentsMD), 0o600); err != nil {
+		return fmt.Errorf("write orchestrator workspace AGENTS.md: %w", err)
+	}
+	return nil
+}
+
+// seededMarkerFileName lists the shipped workspaces already offered to a root.
+const seededMarkerFileName = ".seeded-workspaces"
+
+type shippedWorkspace struct {
+	dir  string
+	seed func(root string) error
+}
+
+var shippedWorkspaces = []shippedWorkspace{
+	{dir: HiveWorkspaceDir, seed: SeedHiveWorkspace},
+	{dir: OrchestratorWorkspaceDir, seed: SeedOrchestratorWorkspace},
+}
+
+// SeedShippedWorkspaces offers each shipped workspace once, so a deleted one
+// stays deleted. An existing directory of the same name is never touched. A root
+// from before the marker already had its chance at hive.
+func SeedShippedWorkspaces(root string, created bool) (seeded []string, err error) {
+	offered, err := readSeededMarker(root, created)
+	if err != nil {
+		return nil, err
+	}
+	changed := false
+	for _, ws := range shippedWorkspaces {
+		if offered[ws.dir] {
+			continue
+		}
+		offered[ws.dir], changed = true, true
+		exists, err := fileExists(filepath.Join(root, ws.dir))
+		if err != nil {
+			return seeded, fmt.Errorf("stat %s workspace: %w", ws.dir, err)
+		}
+		if exists {
+			continue
+		}
+		if err := ws.seed(root); err != nil {
+			return seeded, err
+		}
+		seeded = append(seeded, ws.dir)
+	}
+	if !changed {
+		return seeded, nil
+	}
+	dirs := make([]string, 0, len(offered))
+	for dir := range offered {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	if err := writeIfDifferent(filepath.Join(root, seededMarkerFileName), []byte(strings.Join(dirs, "\n")+"\n")); err != nil {
+		return seeded, err
+	}
+	return seeded, nil
+}
+
+func readSeededMarker(root string, created bool) (map[string]bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, seededMarkerFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		if created {
+			return map[string]bool{}, nil
+		}
+		return map[string]bool{HiveWorkspaceDir: true}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", seededMarkerFileName, err)
+	}
+	offered := map[string]bool{}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			offered[line] = true
+		}
+	}
+	return offered, nil
 }

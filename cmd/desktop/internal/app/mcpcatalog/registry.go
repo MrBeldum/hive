@@ -12,6 +12,8 @@ import (
 // A shipped entry is an endorsement (spec §7.3) and a release to revise, so
 // the set grows reluctantly — first-party servers with a keyless, pinnable
 // invocation only; mcps.yaml is the escape hatch for everything else.
+const Orchestrator = "hive-orchestrator"
+
 var registry = map[string]Descriptor{
 	// The desktop's own MCP server (ADR mcp-replaces-the-agent-facing-http-api) — the surface an agent drives
 	// the app through, and the reason a workspace's agent can read this
@@ -38,6 +40,16 @@ var registry = map[string]Descriptor{
 		Server:      Server{Transport: TransportHttp},
 		RuntimeURL:  true,
 		RuntimePath: "/mcp/canvas",
+	},
+	// Authenticated with the session token each workspace launch hands its process.
+	Orchestrator: {
+		Type:        Orchestrator,
+		Title:       "Hive Orchestrator",
+		Description: "Session control for an orchestrating agent: start hive sessions in repositories, read and type into their agents, answer their prompts, and wait on the message bus. Declaring it grants that control to the workspace.",
+		Stability:   StabilityExperimental,
+		Server:      Server{Transport: TransportHttp, BearerTokenEnv: "HIVE_AGENT_SESSION_TOKEN"},
+		RuntimeURL:  true,
+		RuntimePath: "/mcp/orchestrator",
 	},
 	"chrome-devtools": {
 		Type:        "chrome-devtools",
