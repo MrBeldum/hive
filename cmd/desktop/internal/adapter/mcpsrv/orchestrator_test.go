@@ -146,6 +146,33 @@ func TestOrchestratorRefusesCallsWithoutTheGrant(t *testing.T) {
 	}
 }
 
+func TestOrchestratorEveryToolRequiresAToken(t *testing.T) {
+	f := testOrchestrator(t)
+	session := f.connect(t, "")
+
+	validArgs := map[string]map[string]any{
+		"list_repositories": {},
+		"start_session":     {"repository": "git@x:y/z", "name": "x", "prompt": "go"},
+		"list_sessions":     {},
+		"peek_session":      {"session": "s1"},
+		"send_prompt":       {"session": "s1", "text": "hi"},
+		"send_keys":         {"session": "s1", "keys": []string{"Enter"}},
+		"wait_for_session":  {"session": "s1"},
+		"publish_message":   {"topic": "t", "payload": "p"},
+		"wait_for_message":  {"topic": "t"},
+		"sleep":             {"seconds": 1},
+	}
+	tools, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	for _, tool := range tools.Tools {
+		args, ok := validArgs[tool.Name]
+		require.True(t, ok, "add valid arguments for %s", tool.Name)
+		res := callJSON(t, session, tool.Name, args, nil)
+		require.True(t, res.IsError, tool.Name)
+		assert.Contains(t, errorText(res), "unauthenticated", tool.Name)
+	}
+}
+
 func TestOrchestratorMessageRoundTrip(t *testing.T) {
 	f := testOrchestrator(t)
 	session := f.connect(t, "orch-token")

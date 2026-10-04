@@ -5,6 +5,8 @@ import (
 	"sort"
 )
 
+const Orchestrator = "hive-orchestrator"
+
 // registry is the shipped set, keyed by Descriptor.Type. Never init()
 // self-registration — gochecknoinits is enabled, and an explicit map is the
 // only form where the shipped set can be read off one file.
@@ -12,8 +14,6 @@ import (
 // A shipped entry is an endorsement (spec §7.3) and a release to revise, so
 // the set grows reluctantly — first-party servers with a keyless, pinnable
 // invocation only; mcps.yaml is the escape hatch for everything else.
-const Orchestrator = "hive-orchestrator"
-
 var registry = map[string]Descriptor{
 	// The desktop's own MCP server (ADR mcp-replaces-the-agent-facing-http-api) — the surface an agent drives
 	// the app through, and the reason a workspace's agent can read this

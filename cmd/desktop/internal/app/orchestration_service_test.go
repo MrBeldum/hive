@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -87,6 +88,8 @@ type fakeOrchInbox struct {
 	mu     sync.Mutex
 	unread []messaging.Message
 	acked  []string
+	// gate, when set, holds the first GetUnread after it has read.
+	gate chan struct{}
 }
 
 func (f *fakeOrchInbox) Publish(_ context.Context, _ messaging.Message, topics []string) (messaging.PublishResult, error) {
@@ -95,8 +98,13 @@ func (f *fakeOrchInbox) Publish(_ context.Context, _ messaging.Message, topics [
 
 func (f *fakeOrchInbox) GetUnread(context.Context, string, string) ([]messaging.Message, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.unread, nil
+	unread, gate := f.unread, f.gate
+	f.gate = nil
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	return unread, nil
 }
 
 func (f *fakeOrchInbox) Acknowledge(_ context.Context, _ string, ids []string) error {
@@ -116,7 +124,20 @@ func newTestOrchestration(launcher *fakeOrchLauncher, driver *fakeOrchDriver, st
 	})
 }
 
-var testCaller = OrchestratorCaller{Session: 1, Workspace: "orchestrator"}
+var testCaller = OrchestratorCaller{Session: 1, Workspace: "orchestrator", authorized: true}
+
+func TestOrchestrationRejectsAnUnauthorizedCaller(t *testing.T) {
+	launcher := &fakeOrchLauncher{}
+	svc := newTestOrchestration(launcher, &fakeOrchDriver{}, &fakeOrchStatuses{script: []string{"ready"}}, &fakeOrchInbox{}, nil)
+	forged := OrchestratorCaller{Session: 1, Workspace: "orchestrator"}
+
+	_, err := svc.StartSession(t.Context(), forged, OrchestratedSessionRequest{Repository: "git@x:y/z", Name: "x"})
+	assert.Equal(t, KindUnauthenticated, KindOf(err))
+	assert.Empty(t, launcher.got.Name)
+
+	_, err = svc.SendPrompt(t.Context(), forged, PromptSend{SessionID: "s1", Text: "hi"})
+	assert.Equal(t, KindUnauthenticated, KindOf(err))
+}
 
 func TestOrchestrationStartSessionTagsAndValidates(t *testing.T) {
 	launcher := &fakeOrchLauncher{}
@@ -163,43 +184,53 @@ func TestOrchestrationWaitForSession(t *testing.T) {
 	driver := &fakeOrchDriver{sessions: []session.Session{{ID: "s1", State: session.StateActive, Tags: []string{"orchestrator"}}}}
 
 	t.Run("reaches a named state", func(t *testing.T) {
-		svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "active", "approval"}}, &fakeOrchInbox{}, nil)
-		res, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"approval", "ready"}, time.Second)
-		require.NoError(t, err)
-		assert.True(t, res.Matched)
-		assert.Equal(t, "approval", res.Session.AgentStatus)
+		synctest.Test(t, func(t *testing.T) {
+			svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "active", "approval"}}, &fakeOrchInbox{}, nil)
+			res, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"approval", "ready"}, time.Second)
+			require.NoError(t, err)
+			assert.True(t, res.Matched)
+			assert.Equal(t, "approval", res.Session.AgentStatus)
+		})
 	})
 
 	t.Run("any change when no state is named", func(t *testing.T) {
-		svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "active", "ready"}}, &fakeOrchInbox{}, nil)
-		res, err := svc.WaitForSession(t.Context(), testCaller, "s1", nil, time.Second)
-		require.NoError(t, err)
-		assert.True(t, res.Matched)
-		assert.Equal(t, "ready", res.Session.AgentStatus)
+		synctest.Test(t, func(t *testing.T) {
+			svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "active", "ready"}}, &fakeOrchInbox{}, nil)
+			res, err := svc.WaitForSession(t.Context(), testCaller, "s1", nil, time.Second)
+			require.NoError(t, err)
+			assert.True(t, res.Matched)
+			assert.Equal(t, "ready", res.Session.AgentStatus)
+		})
 	})
 
 	t.Run("a failed status read is skipped, not read as missing", func(t *testing.T) {
-		svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "error", "ready"}}, &fakeOrchInbox{}, nil)
-		res, err := svc.WaitForSession(t.Context(), testCaller, "s1", nil, 5*time.Second)
-		require.NoError(t, err)
-		assert.True(t, res.Matched)
-		assert.Equal(t, "ready", res.Session.AgentStatus)
+		synctest.Test(t, func(t *testing.T) {
+			svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active", "error", "ready"}}, &fakeOrchInbox{}, nil)
+			res, err := svc.WaitForSession(t.Context(), testCaller, "s1", nil, 5*time.Second)
+			require.NoError(t, err)
+			assert.True(t, res.Matched)
+			assert.Equal(t, "ready", res.Session.AgentStatus)
+		})
 	})
 
 	t.Run("times out", func(t *testing.T) {
-		svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active"}}, &fakeOrchInbox{}, nil)
-		res, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"ready"}, 20*time.Millisecond)
-		require.NoError(t, err)
-		assert.False(t, res.Matched)
-		assert.True(t, res.TimedOut)
+		synctest.Test(t, func(t *testing.T) {
+			svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active"}}, &fakeOrchInbox{}, nil)
+			res, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"ready"}, 20*time.Millisecond)
+			require.NoError(t, err)
+			assert.False(t, res.Matched)
+			assert.True(t, res.TimedOut)
+		})
 	})
 
 	t.Run("returns on shutdown", func(t *testing.T) {
-		done := make(chan struct{})
-		close(done)
-		svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active"}}, &fakeOrchInbox{}, done)
-		_, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"ready"}, time.Minute)
-		assert.Equal(t, KindUnavailable, KindOf(err))
+		synctest.Test(t, func(t *testing.T) {
+			done := make(chan struct{})
+			close(done)
+			svc := newTestOrchestration(&fakeOrchLauncher{}, driver, &fakeOrchStatuses{script: []string{"active"}}, &fakeOrchInbox{}, done)
+			_, err := svc.WaitForSession(t.Context(), testCaller, "s1", []string{"ready"}, time.Minute)
+			assert.Equal(t, KindUnavailable, KindOf(err))
+		})
 	})
 }
 
@@ -214,6 +245,31 @@ func TestOrchestrationWaitForMessagesAcknowledges(t *testing.T) {
 
 	_, err = svc.WaitForMessages(t.Context(), testCaller, " ", time.Second)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func TestOrchestrationWaitForMessagesClaimsOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		inbox := &fakeOrchInbox{unread: []messaging.Message{{ID: "m1"}}, gate: gate}
+		svc := newTestOrchestration(&fakeOrchLauncher{}, &fakeOrchDriver{}, &fakeOrchStatuses{script: []string{"ready"}}, inbox, nil)
+
+		results := make(chan MessageWait, 2)
+		for range 2 {
+			go func() {
+				res, err := svc.WaitForMessages(t.Context(), testCaller, "t", time.Second)
+				assert.NoError(t, err)
+				results <- res
+			}()
+		}
+		synctest.Wait()
+		close(gate)
+
+		var got int
+		for range 2 {
+			got += len((<-results).Messages)
+		}
+		assert.Equal(t, 1, got, "two waits on one consumer take a message once")
+	})
 }
 
 func TestOrchestrationSendPromptMapsDriverErrors(t *testing.T) {

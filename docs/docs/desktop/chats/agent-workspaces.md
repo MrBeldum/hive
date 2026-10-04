@@ -22,7 +22,7 @@ Hive creates a built-in workspace named **Hive**. Use it to configure flows, sou
 
 Open the workspace and describe the change you want. Its shipped skills know the local config paths and the app's current schemas. Its default command asks before making changes.
 
-New installs also get an **Orchestrator** workspace for work that spans repositories. See [Orchestrator](orchestrator.md).
+Hive also adds an **Orchestrator** workspace for work that spans repositories. See [Orchestrator](orchestrator.md).
 
 ## Create a workspace
 

@@ -1,6 +1,7 @@
 package agentws
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,5 +165,29 @@ func TestSeedShippedWorkspaces(t *testing.T) {
 		assert.Equal(t, "my own", string(data))
 		_, err = os.Stat(filepath.Join(mine, manifestFileName))
 		assert.True(t, os.IsNotExist(err))
+	})
+	t.Run("a failed seed leaves nothing behind and is retried", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		failing := func(root string) error {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, OrchestratorWorkspaceDir), 0o700))
+			return errors.New("disk full")
+		}
+		_, err := seedShipped(root, true, []shippedWorkspace{
+			{dir: HiveWorkspaceDir, seed: SeedHiveWorkspace},
+			{dir: OrchestratorWorkspaceDir, seed: failing},
+		})
+		require.ErrorContains(t, err, "disk full")
+		assert.True(t, exists(t, root, HiveWorkspaceDir))
+		assert.False(t, exists(t, root, OrchestratorWorkspaceDir))
+		entries, err := os.ReadDir(root)
+		require.NoError(t, err)
+		for _, e := range entries {
+			assert.NotContains(t, e.Name(), ".seeding-", "no staging directory is left behind")
+		}
+
+		seeded, err := SeedShippedWorkspaces(root, false)
+		require.NoError(t, err)
+		assert.Equal(t, []string{OrchestratorWorkspaceDir}, seeded, "only the failed workspace is retried")
 	})
 }

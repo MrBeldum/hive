@@ -226,42 +226,66 @@ var shippedWorkspaces = []shippedWorkspace{
 
 // SeedShippedWorkspaces offers each shipped workspace once, so a deleted one
 // stays deleted. An existing directory of the same name is never touched. A root
-// from before the marker already had its chance at hive.
+// from before the marker already had its chance at hive. A workspace that
+// fails to seed stays unoffered, so the next start tries it again.
 func SeedShippedWorkspaces(root string, created bool) (seeded []string, err error) {
+	return seedShipped(root, created, shippedWorkspaces)
+}
+
+func seedShipped(root string, created bool, shipped []shippedWorkspace) (seeded []string, err error) {
 	offered, err := readSeededMarker(root, created)
 	if err != nil {
 		return nil, err
 	}
 	changed := false
-	for _, ws := range shippedWorkspaces {
+	var errs []error
+	for _, ws := range shipped {
 		if offered[ws.dir] {
 			continue
 		}
-		offered[ws.dir], changed = true, true
 		exists, err := fileExists(filepath.Join(root, ws.dir))
 		if err != nil {
-			return seeded, fmt.Errorf("stat %s workspace: %w", ws.dir, err)
-		}
-		if exists {
+			errs = append(errs, fmt.Errorf("stat %s workspace: %w", ws.dir, err))
 			continue
 		}
-		if err := ws.seed(root); err != nil {
-			return seeded, err
+		if !exists {
+			if err := seedWhole(root, ws); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			seeded = append(seeded, ws.dir)
 		}
-		seeded = append(seeded, ws.dir)
+		offered[ws.dir], changed = true, true
 	}
-	if !changed {
-		return seeded, nil
+	if changed {
+		dirs := make([]string, 0, len(offered))
+		for dir := range offered {
+			dirs = append(dirs, dir)
+		}
+		sort.Strings(dirs)
+		if err := writeIfDifferent(filepath.Join(root, seededMarkerFileName), []byte(strings.Join(dirs, "\n")+"\n")); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	dirs := make([]string, 0, len(offered))
-	for dir := range offered {
-		dirs = append(dirs, dir)
+	return seeded, errors.Join(errs...)
+}
+
+// seedWhole seeds into a hidden sibling and renames it into place, so a
+// failed write never leaves a partial workspace that a later start would take
+// for the user's own directory.
+func seedWhole(root string, ws shippedWorkspace) error {
+	staging, err := os.MkdirTemp(root, ".seeding-")
+	if err != nil {
+		return fmt.Errorf("stage %s workspace: %w", ws.dir, err)
 	}
-	sort.Strings(dirs)
-	if err := writeIfDifferent(filepath.Join(root, seededMarkerFileName), []byte(strings.Join(dirs, "\n")+"\n")); err != nil {
-		return seeded, err
+	defer func() { _ = os.RemoveAll(staging) }()
+	if err := ws.seed(staging); err != nil {
+		return err
 	}
-	return seeded, nil
+	if err := os.Rename(filepath.Join(staging, ws.dir), filepath.Join(root, ws.dir)); err != nil {
+		return fmt.Errorf("place %s workspace: %w", ws.dir, err)
+	}
+	return nil
 }
 
 func readSeededMarker(root string, created bool) (map[string]bool, error) {

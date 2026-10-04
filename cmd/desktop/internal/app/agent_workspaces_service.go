@@ -690,11 +690,14 @@ func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string
 }
 
 // OrchestratorCaller is a chat (Session, Workspace) or an access token (Token).
+// Only Authorize and AuthorizeOrchestrator make one that OrchestrationService
+// accepts.
 type OrchestratorCaller struct {
-	Session   int64
-	Token     int64
-	Name      string
-	Workspace string
+	Session    int64
+	Token      int64
+	Name       string
+	Workspace  string
+	authorized bool
 }
 
 // AuthorizeOrchestrator requires the token's chat to be in a workspace that
@@ -718,7 +721,7 @@ func (s *AgentWorkspacesService) AuthorizeOrchestrator(ctx context.Context, toke
 	if !slices.Contains(st.Workspace.MCPs, mcpcatalog.Orchestrator) {
 		return OrchestratorCaller{}, Errorf(KindUnauthenticated, "workspace %q does not declare the %s MCP server", rec.Workspace, mcpcatalog.Orchestrator)
 	}
-	return OrchestratorCaller{Session: rec.ID, Name: rec.Name, Workspace: rec.Workspace}, nil
+	return OrchestratorCaller{Session: rec.ID, Name: rec.Name, Workspace: rec.Workspace, authorized: true}, nil
 }
 
 // A scheduled chat that ended itself is what the Chats area is showing as

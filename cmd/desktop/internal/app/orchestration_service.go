@@ -86,6 +86,8 @@ type OrchestrationService struct {
 	done     <-chan struct{}
 	now      func() time.Time
 	logger   zerolog.Logger
+	// claimLock is a channel so a waiter can give up on ctx.
+	claimLock chan struct{}
 }
 
 type OrchestrationDeps struct {
@@ -108,6 +110,7 @@ func newOrchestrationService(d OrchestrationDeps) *OrchestrationService {
 		launcher: d.Launcher, ui: d.Sessions, hive: d.Hive, prompts: d.Prompts, messages: d.Messages,
 		auth: d.Auth, tokens: d.Tokens, mcpBase: d.MCPBase,
 		done: d.Done, now: time.Now, logger: d.Logger,
+		claimLock: make(chan struct{}, 1),
 	}
 }
 
@@ -126,7 +129,14 @@ func (s *OrchestrationService) Authorize(ctx context.Context, token string) (Orc
 	if err := s.tokens.Touch(ctx, rec.ID); err != nil {
 		s.logger.Warn().Ctx(ctx).Err(err).Int64("token", rec.ID).Msg("recording access token use")
 	}
-	return OrchestratorCaller{Token: rec.ID, Name: rec.Name}, nil
+	return OrchestratorCaller{Token: rec.ID, Name: rec.Name, authorized: true}, nil
+}
+
+func (c OrchestratorCaller) check() error {
+	if !c.authorized {
+		return Errorf(KindUnauthenticated, "the caller is not authorized")
+	}
+	return nil
 }
 
 // consumer is per workspace so a new chat does not re-take acked messages.
@@ -203,7 +213,10 @@ func (s *OrchestrationService) RevokeToken(ctx context.Context, id int64) error 
 	return nil
 }
 
-func (s *OrchestrationService) Repositories(ctx context.Context, _ OrchestratorCaller) (dispatch.SessionLaunchOptions, error) {
+func (s *OrchestrationService) Repositories(ctx context.Context, caller OrchestratorCaller) (dispatch.SessionLaunchOptions, error) {
+	if err := caller.check(); err != nil {
+		return dispatch.SessionLaunchOptions{}, err
+	}
 	opts, err := s.ui.SessionLaunchOptions(ctx)
 	if err != nil {
 		return dispatch.SessionLaunchOptions{}, Wrap(err, KindUnavailable, "reading the repositories hive knows")
@@ -220,6 +233,9 @@ type OrchestratedSessionRequest struct {
 }
 
 func (s *OrchestrationService) StartSession(ctx context.Context, caller OrchestratorCaller, req OrchestratedSessionRequest) (dispatch.SessionExecutionOutcome, error) {
+	if err := caller.check(); err != nil {
+		return dispatch.SessionExecutionOutcome{}, err
+	}
 	name := strings.TrimSpace(req.Name)
 	repo, err := s.resolveRepository(ctx, req.Repository)
 	if err != nil {
@@ -277,7 +293,10 @@ type OrchestratedSession struct {
 }
 
 // Sessions lists active orchestrator-tagged sessions unless all is set.
-func (s *OrchestrationService) Sessions(ctx context.Context, _ OrchestratorCaller, all bool, tags []string) ([]OrchestratedSession, error) {
+func (s *OrchestrationService) Sessions(ctx context.Context, caller OrchestratorCaller, all bool, tags []string) ([]OrchestratedSession, error) {
+	if err := caller.check(); err != nil {
+		return nil, err
+	}
 	out, _, err := s.sessions(ctx, all, tags, false)
 	return out, err
 }
@@ -354,7 +373,10 @@ type PromptSend struct {
 	Lines     int
 }
 
-func (s *OrchestrationService) Peek(ctx context.Context, _ OrchestratorCaller, id string, lines int) (prompt.SessionPeek, error) {
+func (s *OrchestrationService) Peek(ctx context.Context, caller OrchestratorCaller, id string, lines int) (prompt.SessionPeek, error) {
+	if err := caller.check(); err != nil {
+		return prompt.SessionPeek{}, err
+	}
 	sess, err := s.hive().GetSession(ctx, id)
 	if err != nil {
 		return prompt.SessionPeek{}, driveError(err, id)
@@ -366,7 +388,10 @@ func (s *OrchestrationService) Peek(ctx context.Context, _ OrchestratorCaller, i
 	return peek, nil
 }
 
-func (s *OrchestrationService) SendPrompt(ctx context.Context, _ OrchestratorCaller, req PromptSend) (prompt.SessionPeek, error) {
+func (s *OrchestrationService) SendPrompt(ctx context.Context, caller OrchestratorCaller, req PromptSend) (prompt.SessionPeek, error) {
+	if err := caller.check(); err != nil {
+		return prompt.SessionPeek{}, err
+	}
 	if strings.TrimSpace(req.Text) == "" {
 		return prompt.SessionPeek{}, Errorf(KindInvalid, "text is required")
 	}
@@ -381,7 +406,10 @@ func (s *OrchestrationService) SendPrompt(ctx context.Context, _ OrchestratorCal
 	return peek, nil
 }
 
-func (s *OrchestrationService) SendKeys(ctx context.Context, _ OrchestratorCaller, id string, keys []string, lines int) (prompt.SessionPeek, error) {
+func (s *OrchestrationService) SendKeys(ctx context.Context, caller OrchestratorCaller, id string, keys []string, lines int) (prompt.SessionPeek, error) {
+	if err := caller.check(); err != nil {
+		return prompt.SessionPeek{}, err
+	}
 	if len(keys) == 0 {
 		return prompt.SessionPeek{}, Errorf(KindInvalid, "at least one key is required")
 	}
@@ -408,6 +436,9 @@ func driveError(err error, id string) error {
 }
 
 func (s *OrchestrationService) Publish(ctx context.Context, caller OrchestratorCaller, topic, payload string) ([]string, error) {
+	if err := caller.check(); err != nil {
+		return nil, err
+	}
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
 		return nil, Errorf(KindInvalid, "topic is required")
@@ -427,6 +458,9 @@ type MessageWait struct {
 
 // WaitForMessages returns and acknowledges unread messages, waiting up to timeout.
 func (s *OrchestrationService) WaitForMessages(ctx context.Context, caller OrchestratorCaller, topic string, timeout time.Duration) (MessageWait, error) {
+	if err := caller.check(); err != nil {
+		return MessageWait{}, err
+	}
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
 		return MessageWait{}, Errorf(KindInvalid, "topic is required")
@@ -438,18 +472,11 @@ func (s *OrchestrationService) WaitForMessages(ctx context.Context, caller Orche
 	poll := time.NewTicker(orchestratorMessagePoll)
 	defer poll.Stop()
 	for {
-		msgs, err := s.messages().GetUnread(ctx, caller.consumer(), topic)
+		msgs, err := s.claimUnread(ctx, caller.consumer(), topic)
 		if err != nil {
-			return MessageWait{}, Wrap(err, KindInternal, "reading %s", topic)
+			return MessageWait{}, err
 		}
 		if len(msgs) > 0 {
-			ids := make([]string, len(msgs))
-			for i, m := range msgs {
-				ids[i] = m.ID
-			}
-			if err := s.messages().Acknowledge(ctx, caller.consumer(), ids); err != nil {
-				return MessageWait{}, Wrap(err, KindInternal, "acknowledging messages on %s", topic)
-			}
 			return MessageWait{Messages: msgs, Waited: s.now().Sub(start)}, nil
 		}
 		select {
@@ -464,6 +491,34 @@ func (s *OrchestrationService) WaitForMessages(ctx context.Context, caller Orche
 	}
 }
 
+// claimUnread holds claimLock across the read and the acknowledgement:
+// every chat in a workspace shares one consumer, so two waits that read
+// before either acknowledges would both return the same message.
+func (s *OrchestrationService) claimUnread(ctx context.Context, consumer, topic string) ([]messaging.Message, error) {
+	select {
+	case s.claimLock <- struct{}{}:
+	case <-ctx.Done():
+		return nil, Wrap(ctx.Err(), KindUnavailable, "the wait was cancelled")
+	}
+	defer func() { <-s.claimLock }()
+
+	msgs, err := s.messages().GetUnread(ctx, consumer, topic)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "reading %s", topic)
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	if err := s.messages().Acknowledge(ctx, consumer, ids); err != nil {
+		return nil, Wrap(err, KindInternal, "acknowledging messages on %s", topic)
+	}
+	return msgs, nil
+}
+
 type SessionWait struct {
 	Session  OrchestratedSession
 	Matched  bool
@@ -472,7 +527,10 @@ type SessionWait struct {
 }
 
 // WaitForSession waits for one of states, or any change when states is empty.
-func (s *OrchestrationService) WaitForSession(ctx context.Context, _ OrchestratorCaller, id string, states []string, timeout time.Duration) (SessionWait, error) {
+func (s *OrchestrationService) WaitForSession(ctx context.Context, caller OrchestratorCaller, id string, states []string, timeout time.Duration) (SessionWait, error) {
+	if err := caller.check(); err != nil {
+		return SessionWait{}, err
+	}
 	timeout = clampWait(timeout)
 	start := s.now()
 	deadline := time.NewTimer(timeout)
@@ -530,7 +588,10 @@ func (s *OrchestrationService) sessionStatus(ctx context.Context, id string) (Or
 	return OrchestratedSession{}, 0, Errorf(KindNotFound, "no hive session %q", id)
 }
 
-func (s *OrchestrationService) Sleep(ctx context.Context, _ OrchestratorCaller, d time.Duration) (time.Duration, error) {
+func (s *OrchestrationService) Sleep(ctx context.Context, caller OrchestratorCaller, d time.Duration) (time.Duration, error) {
+	if err := caller.check(); err != nil {
+		return 0, err
+	}
 	if d <= 0 {
 		return 0, Errorf(KindInvalid, "seconds must be positive")
 	}
