@@ -46,6 +46,7 @@ function meta(overrides: Partial<WorkspaceCanvasMeta>): WorkspaceCanvasMeta {
     name: 'plan',
     title: '',
     session: 7,
+    hiveSession: '',
     createdAt: 1,
     updatedAt: 1,
     blockCount: 1,
@@ -219,6 +220,32 @@ describe('AgentCanvasPane', () => {
     expect(wrapper.emitted('open-page')).toEqual([['plan']])
   })
 
+  // Hive wires a workspace's agent itself. A Code session's agent is the
+  // user's to configure, so its empty pane says how.
+  it('offers agent setup on an empty pane only where it is asked to', async () => {
+    const inChats = await mountPane(fakeCanvasClient([], []))
+    expect(inChats.find('[data-testid="agent-canvas-setup"]').exists()).toBe(false)
+
+    const inCode = mount(AgentCanvasPane, {
+      props: {
+        session: 'abc123',
+        workspace: 'acme/site',
+        name: null,
+        client: fakeCanvasClient([], []),
+        agentSetup: true,
+      },
+    })
+    await flushPromises()
+    await inCode.get('[data-testid="agent-canvas-setup-open"]').trigger('click')
+    expect(inCode.emitted('setup')).toHaveLength(1)
+
+    const withCanvases = mount(AgentCanvasPane, {
+      props: { session: 'abc123', workspace: 'acme/site', name: null, client: fakeCanvasClient([]), agentSetup: true },
+    })
+    await flushPromises()
+    expect(withCanvases.find('[data-testid="agent-canvas-setup"]').exists()).toBe(false)
+  })
+
   it('shows the empty state when the workspace has no canvases', async () => {
     const wrapper = await mountPane(fakeCanvasClient([], []))
     expect(wrapper.find('[data-testid="agent-canvas-empty"]').exists()).toBe(true)
@@ -236,6 +263,27 @@ describe('AgentCanvasPane', () => {
     expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('web-app', 'plan')
   })
 
+  // In Code the pane's session is a hive session, and its canvases are the
+  // repository's: the default prefers the one this session wrote.
+  it("defaults to the hive session's own canvas among its repository's", async () => {
+    const client = fakeCanvasClient(
+      [],
+      [
+        meta({ workspace: 'acme/site', name: 'other', session: 0, hiveSession: 'def456', updatedAt: 5 }),
+        meta({ workspace: 'acme/site', name: 'plan', session: 0, hiveSession: 'abc123', updatedAt: 3 }),
+      ],
+    )
+    const wrapper = mount(AgentCanvasPane, {
+      props: { session: 'abc123', workspace: 'acme/site', name: null, client },
+    })
+    await flushPromises()
+
+    expect(vi.mocked(client.canvases)).toHaveBeenCalledWith('acme/site')
+    expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('acme/site', 'plan')
+
+    wrapper.unmount()
+  })
+
   it('pins the route-named canvas and lists canvases by title in the browse view', async () => {
     const client = fakeCanvasClient(
       [],
@@ -250,6 +298,28 @@ describe('AgentCanvasPane', () => {
     expect(browse.text()).toContain('The Plan')
     expect(browse.text()).toContain('perf-report')
     expect(wrapper.get('[data-testid="agent-canvas-browse-perf-report"]').attributes('aria-current')).toBe('true')
+  })
+
+  it('falls back to the default when the pinned canvas is deleted', async () => {
+    const client = fakeCanvasClient([], [meta({ name: 'plan', session: 7 }), meta({ name: 'perf-report', session: 9 })])
+    await mountPane(client, 'perf-report')
+
+    vi.mocked(client.canvases).mockResolvedValue([meta({ name: 'plan', session: 7 })])
+    wailsEvents.fire('canvas:updated', 9)
+    await flushPromises()
+
+    expect(vi.mocked(client.canvas)).toHaveBeenLastCalledWith('web-app', 'plan')
+  })
+
+  // open_canvas can name a canvas before the agent's first write to it.
+  it('keeps a pinned name that was never listed', async () => {
+    const client = fakeCanvasClient([], [meta({ name: 'plan' })])
+    await mountPane(client, 'draft')
+
+    wailsEvents.fire('canvas:updated', 7)
+    await flushPromises()
+
+    expect(vi.mocked(client.canvas)).toHaveBeenLastCalledWith('web-app', 'draft')
   })
 
   it('emits pick from the browse view instead of switching locally', async () => {

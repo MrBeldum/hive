@@ -11,26 +11,31 @@ import IconX from '~icons/lucide/x'
 import AgentCanvasActions from './AgentCanvasActions.vue'
 import AgentCanvasBrowse from './AgentCanvasBrowse.vue'
 import AgentCanvasReader from './AgentCanvasReader.vue'
+import BaseButton from './ui/BaseButton.vue'
 import PanelResizeHandle from './ui/PanelResizeHandle.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
+import type { CanvasAuthor } from '../lib/agentCanvas'
 import type { AgentWorkspacesClient } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
-  /** The open chat, whose most recent canvas is the default pick. */
-  session: number
-  /** The open chat's workspace, whose canvases fill the picker. */
+  /** The open chat or Code session, whose most recent canvas is the default pick. */
+  session: CanvasAuthor
+  /** The owner whose canvases fill the picker: the chat's workspace, or the session's repository. */
   workspace: string
   /** The route-pinned canvas name; null lets the default win. */
   name: string | null
   client: AgentWorkspacesClient | null
+  /** Offers the way to connect an agent while there is no canvas, where Hive does not wire the agent itself. */
+  agentSetup?: boolean
 }>()
 const emit = defineEmits<{
   close: []
   'open-url': [url: string]
   pick: [name: string]
   'open-page': [name: string | null]
+  setup: []
 }>()
 
 const { canvas, metas, shown, loading, error, show, wake } = useAgentCanvas(toRef(props, 'client'))
@@ -135,6 +140,18 @@ const {
         @open-url="emit('open-url', $event)"
         @open-canvas="pick"
       />
+      <div
+        v-if="agentSetup && !metas.length && !loading && !error"
+        class="mt-3 flex flex-col items-start gap-2"
+        data-testid="agent-canvas-setup"
+      >
+        <p class="text-xs leading-relaxed text-text-3">
+          An agent in this session can write here once its own MCP configuration lists the Hive Canvas server.
+        </p>
+        <BaseButton variant="secondary" size="xs" data-testid="agent-canvas-setup-open" @click="emit('setup')">
+          Set up an agent
+        </BaseButton>
+      </div>
     </div>
   </aside>
 </template>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, toRef } from 'vue'
+import { useRouter } from 'vue-router'
 import IconTerminal from '~icons/lucide/terminal'
 import ActionInputsDialog from './ActionInputsDialog.vue'
+import AgentCanvasPane from './AgentCanvasPane.vue'
 import SessionDetailDialog from './SessionDetailDialog.vue'
 import ConfirmationHost from './ui/ConfirmationHost.vue'
 import RenameDialog from './ui/RenameDialog.vue'
@@ -9,6 +11,7 @@ import TerminalPaneColumn from './terminal/TerminalPaneColumn.vue'
 import TerminalSidebar from './terminal/TerminalSidebar.vue'
 import { provideTerminalMode } from './terminal/terminalModeContext'
 import { useSessionTreeView } from './terminal/useSessionTreeView'
+import { useTerminalCanvas, type TerminalCanvasTarget } from './terminal/useTerminalCanvas'
 import { useTerminalAttach } from './terminal/useTerminalAttach'
 import { useTerminalCommands } from './terminal/useTerminalCommands'
 import { useTerminalPool } from './terminal/useTerminalPool'
@@ -18,6 +21,8 @@ import { useTreeKeyboardNav } from './terminal/useTreeKeyboardNav'
 import { useWindowRename } from './terminal/useWindowRename'
 import { useNewSession } from '../composables/useNewSession'
 import { useSessionActions } from '../composables/useSessionActions'
+import { openLink } from '../composables/useXtermPane'
+import type { CanvasScope } from '../lib/agentCanvas'
 import { useTerminalAvailability } from '../stores/useTerminalAvailability'
 import { useTerminalPoolSize } from '../stores/useTerminalPoolSize'
 import '@xterm/xterm/css/xterm.css'
@@ -25,8 +30,20 @@ import '@xterm/xterm/css/xterm.css'
 // `active` is whether this mode is the surface on screen. The component is
 // mounted once and hidden on a trip to the hub (App.vue), so it is the signal
 // that replaces mount/unmount for anything that must not run off-screen.
-const props = withDefaults(defineProps<{ sidebarCollapsed?: boolean; active?: boolean }>(), { active: true })
-const emit = defineEmits<{ 'open-tasks': []; 'session-repo-key': [repoKey: string] }>()
+const props = withDefaults(
+  defineProps<{
+    sidebarCollapsed?: boolean
+    active?: boolean
+    /** Whose canvases the attached session reads; null for a session with none. */
+    canvas?: TerminalCanvasTarget | null
+  }>(),
+  { active: true, canvas: null },
+)
+const emit = defineEmits<{
+  'open-tasks': []
+  'session-repo-key': [repoKey: string]
+  'open-canvas-page': [scope: CanvasScope]
+}>()
 const active = (): boolean => props.active
 
 const { checking, available, reason } = useTerminalAvailability()
@@ -55,6 +72,20 @@ const nav = useTreeKeyboardNav({
 const context = { pool, tree, view, nav, attach, ops, rename, sessions }
 provideTerminalMode(context)
 useTerminalCommands(context, active)
+
+const {
+  pane: canvasPane,
+  canvasName,
+  client: canvasClient,
+  syncCanvasQuery,
+} = useTerminalCanvas(toRef(props, 'canvas'), active)
+
+// Hive does not configure a Code session's agent, so the empty pane leads to
+// the page that says how.
+const router = useRouter()
+function openMcpSettings(): void {
+  void router.push({ name: 'application-settings', params: { section: 'mcp' } })
+}
 
 const { prefetch: prefetchNewSession } = useNewSession()
 onMounted(prefetchNewSession)
@@ -95,6 +126,21 @@ const { confirmation, detail, closeDetail, renaming, renameBusy, renameError, ca
         :active="props.active"
         @open-tasks="emit('open-tasks')"
         @session-repo-key="emit('session-repo-key', $event)"
+      />
+      <!-- A sibling of the pane column, as in Chats: opening it must not
+           re-key a terminal host, and the size vote absorbs the width change. -->
+      <AgentCanvasPane
+        v-if="canvasPane"
+        :session="canvasPane.session"
+        :workspace="canvasPane.workspace"
+        :name="canvasName"
+        :client="canvasClient"
+        :agent-setup="typeof canvasPane.session === 'string'"
+        @setup="openMcpSettings"
+        @close="syncCanvasQuery(false)"
+        @open-url="openLink"
+        @pick="(name) => syncCanvasQuery(true, name)"
+        @open-page="(name) => emit('open-canvas-page', { ...canvasPane!, name })"
       />
     </div>
 

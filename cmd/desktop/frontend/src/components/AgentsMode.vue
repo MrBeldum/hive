@@ -29,7 +29,7 @@ import { useAgentSessionsAll } from '../stores/useAgentSessionsAll'
 import { useAgentCanvasRoute } from '../composables/useAgentCanvasRoute'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { loadTerminalFont, openLink, useXtermPane } from '../composables/useXtermPane'
-import type { CanvasScope } from '../lib/agentCanvas'
+import { canvasEventAuthor, type CanvasScope } from '../lib/agentCanvas'
 import { decodeFrame, encodeInputFrames, encodePasteFrames } from '../lib/agentWorkspacesClient'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
 import { isEditableTarget } from '../lib/isEditableTarget'
@@ -133,15 +133,12 @@ const selectedWorkspace = computed(() =>
   route.name === 'agents' && typeof route.params.workspace === 'string' ? route.params.workspace : '',
 )
 
-function selectWorkspace(dir: string): void {
-  if (dir === selectedWorkspace.value) return
+function selectWorkspace(dir: string): Promise<unknown> {
+  if (dir === selectedWorkspace.value) return Promise.resolve()
   // The query rides along: the focused workspace and the open chat (?chat) are
   // independent axes, and moving one must not drop the other.
-  if (!dir) {
-    void router.push({ name: 'agents', query: route.query })
-    return
-  }
-  void router.push({ name: 'agents', params: { workspace: dir }, query: route.query })
+  if (!dir) return router.push({ name: 'agents', query: route.query })
+  return router.push({ name: 'agents', params: { workspace: dir }, query: route.query })
 }
 
 watch(
@@ -268,7 +265,7 @@ async function startNewSession(workspace: string, name: string): Promise<void> {
   if (startingSession.value) return
   startingSession.value = true
   try {
-    selectWorkspace(workspace)
+    await selectWorkspace(workspace)
     await launchIntoPane(workspace, (size) => startSession({ workspace, name, ...size }))
     void reloadRecents()
   } finally {
@@ -321,8 +318,8 @@ watch(
 // right-panel toggle. This view keeps the two Wails listeners, which are its
 // own: both are answers about the chat it has on screen.
 useWailsEvent('canvas:updated', (event) => {
-  const payload = Array.isArray(event.data) ? event.data[0] : event.data
-  noteCanvasWrite(Number(payload))
+  const author = canvasEventAuthor(event.data)
+  if (typeof author === 'number') noteCanvasWrite(author)
 })
 // Viewing a chat with its pane open clears its dot.
 watch([canvasVisible, routeChatId], ([visible, id]) => {
@@ -334,8 +331,8 @@ watch([canvasVisible, routeChatId], ([visible, id]) => {
 // from a different chat — its write already lights the unseen dot there.
 useWailsEvent('canvas:toggle', (event) => {
   const payload = (Array.isArray(event.data) ? event.data[0] : event.data) as
-    { session: number; name: string; open: boolean } | undefined
-  if (!payload || Number(payload.session) !== routeChatId.value) return
+    { name: string; open: boolean } | undefined
+  if (!payload || canvasEventAuthor(payload) !== routeChatId.value) return
   syncCanvasQuery(payload.open, payload.name || undefined)
 })
 
@@ -363,6 +360,10 @@ async function resumeChatFromRoute(id: number): Promise<void> {
 // moving anything.
 async function handleSidebarSelectSession(session: AgentSession): Promise<void> {
   // openSessionId alone would strand a failed attach (id set, pane idle) with no retry click.
+  // Focus follows the picked chat, as it does a new one: the banners above the
+  // pane and the new-chat default read the focused workspace.
+  // Awaited: the attach rewrites ?chat over the params of the route it sees.
+  await selectWorkspace(session.workspace)
   if (paneStatus.value === 'live' && openSessionId.value === session.id) return
   await resumeRow(session)
   void reloadRecents()
@@ -412,7 +413,7 @@ async function saveWorkspace(request: WorkspaceEditRequest): Promise<void> {
       else void regenerateWorkspace(request.dir)
     } else {
       await createWorkspace(request)
-      selectWorkspace(request.dir)
+      void selectWorkspace(request.dir)
     }
     workspaceEditorOpen.value = false
   } catch (failure) {
@@ -431,7 +432,7 @@ async function deleteWorkspaceFromEditor(dir: string): Promise<void> {
   try {
     await deleteWorkspace(dir)
     workspaceEditorOpen.value = false
-    if (dir === selectedWorkspace.value) selectWorkspace('')
+    if (dir === selectedWorkspace.value) void selectWorkspace('')
     void reloadRecents()
   } catch (failure) {
     workspaceEditorError.value = failure instanceof Error ? failure.message : 'The workspace could not be deleted.'

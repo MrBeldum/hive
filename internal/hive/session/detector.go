@@ -33,17 +33,24 @@ func (d *Detector) DetectSession(ctx context.Context) (string, error) {
 // DetectSessionFromPath returns the session ID for the given path.
 // Returns empty string if the path is not within a hive session, or an error if detection fails.
 func (d *Detector) DetectSessionFromPath(ctx context.Context, path string) (string, error) {
+	sess, _, err := d.SessionAtPath(ctx, path)
+	return sess.ID, err
+}
+
+// SessionAtPath returns the active session whose checkout holds path, and
+// false when path is inside none.
+func (d *Detector) SessionAtPath(ctx context.Context, path string) (session.Session, bool, error) {
 	sessions, err := d.store.List(ctx)
 	if err != nil {
-		return "", fmt.Errorf("list sessions: %w", err)
+		return session.Session{}, false, fmt.Errorf("list sessions: %w", err)
 	}
 
 	// Clean and normalize the path
 	path, err = filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("get absolute path: %w", err)
+		return session.Session{}, false, fmt.Errorf("get absolute path: %w", err)
 	}
-	path = filepath.Clean(path)
+	path = resolveSymlinks(path)
 
 	// Find the longest matching session path (most specific match)
 	var bestMatch session.Session
@@ -54,7 +61,7 @@ func (d *Detector) DetectSessionFromPath(ctx context.Context, path string) (stri
 			continue
 		}
 
-		sessPath := filepath.Clean(sess.Path)
+		sessPath := resolveSymlinks(sess.Path)
 
 		// Check if path equals or is within the session path
 		if path == sessPath || isSubpath(sessPath, path) {
@@ -65,7 +72,17 @@ func (d *Detector) DetectSessionFromPath(ctx context.Context, path string) (stri
 		}
 	}
 
-	return bestMatch.ID, nil
+	return bestMatch, bestMatchLen > 0, nil
+}
+
+// resolveSymlinks compares paths by where they lead: a shell reports the
+// logical working directory, which differs from a session's stored path when
+// either goes through a link. A path that does not exist is only cleaned.
+func resolveSymlinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
 }
 
 // isSubpath returns true if child is a subdirectory of parent.
