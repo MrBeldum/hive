@@ -20,6 +20,7 @@ ON CONFLICT(id) DO UPDATE SET
     clone_strategy = excluded.clone_strategy,
     metadata = excluded.metadata,
     tags = excluded.tags,
+    created_at = excluded.created_at,
     updated_at = excluded.updated_at;
 
 -- name: DeleteSession :exec

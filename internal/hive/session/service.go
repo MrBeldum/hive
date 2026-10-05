@@ -273,7 +273,9 @@ func (s *Service) CreateSession(ctx context.Context, opts CreateOptions) (*sessi
 		sess.Slug = slug
 		sess.State = session.StateActive
 		sess.Tags = opts.Tags
-		sess.UpdatedAt = time.Now()
+		now := time.Now()
+		sess.CreatedAt = now
+		sess.UpdatedAt = now
 	} else {
 		// Create new session (either no recyclable found or it was corrupted)
 		sessID := opts.SessionID
