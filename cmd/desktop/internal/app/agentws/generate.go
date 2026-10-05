@@ -217,20 +217,26 @@ func reconcileSkills(dir string, target map[string][]byte) error {
 		slugs = append(slugs, slug)
 	}
 	sort.Strings(slugs)
-	for _, slug := range slugs {
-		if err := reconcileTree(filepath.Join(dir, slug), map[string][]byte{skillFileName: target[slug]}); err != nil {
-			return err
-		}
-	}
 
+	// The list is written before the skills so that a write failing partway
+	// cannot leave a skill Hive wrote off the list, where it would pass for an
+	// agent's and never be removed. Claiming a slug whose write then fails is
+	// harmless: the next open rewrites or removes it.
 	listPath := filepath.Join(dir, installedListName)
 	if len(slugs) == 0 {
 		if err := os.Remove(listPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("agentws: remove %s: %w", listPath, err)
 		}
-		return nil
+	} else if err := writeIfDifferent(listPath, []byte(strings.Join(slugs, "\n")+"\n")); err != nil {
+		return err
 	}
-	return writeIfDifferent(listPath, []byte(strings.Join(slugs, "\n")+"\n"))
+
+	for _, slug := range slugs {
+		if err := reconcileTree(filepath.Join(dir, slug), map[string][]byte{skillFileName: target[slug]}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readInstalledSkills(dir string) ([]string, error) {
@@ -241,13 +247,20 @@ func readInstalledSkills(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agentws: read %s: %w", installedListName, err)
 	}
-	return strings.Fields(string(data)), nil
+	var slugs []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line != "" {
+			slugs = append(slugs, line)
+		}
+	}
+	return slugs, nil
 }
 
 // validSlug reports whether slug resolves to a direct child of the directory
 // it belongs under: non-empty, not "." or "..", and a single path component.
+// A line break is refused because .hive-installed holds one slug per line.
 func validSlug(slug string) bool {
-	if slug == "" || slug == "." {
+	if slug == "" || slug == "." || strings.ContainsAny(slug, "\r\n") {
 		return false
 	}
 	return filepath.Base(slug) == slug && filepath.IsLocal(slug)

@@ -275,6 +275,33 @@ func TestGenerateLeavesSkillsItDidNotInstall(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", installedListName))
 }
 
+// TestGenerateKeepsASpacedSlugWhole: a shared skill directory may carry a
+// space, and reading the list back must not split it into slugs that name
+// an agent's skill.
+func TestGenerateKeepsASpacedSlugWhole(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	in := GenerateInput{
+		Dir: dir, Workspace: testWorkspace(),
+		Servers: map[string]mcpcatalog.Server{},
+		Skills:  []RenderedSkill{{Slug: "weekly report", Body: "# Weekly\n"}},
+	}
+	_, err := Generate(in)
+	require.NoError(t, err)
+	writeFile(t, filepath.Join(dir, ".claude", "skills", "report", skillFileName), "# mine\n")
+
+	_, err = Generate(in)
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "report", skillFileName))
+
+	in.Skills = nil
+	_, err = Generate(in)
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "weekly report"))
+	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "report", skillFileName))
+}
+
 // TestGenerateWithNoInstalledListRemovesNothing: a tree written before Hive
 // recorded what it installed cannot tell its skills from an agent's, so it
 // keeps every directory rather than guessing.
