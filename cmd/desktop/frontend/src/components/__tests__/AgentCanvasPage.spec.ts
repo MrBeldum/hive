@@ -33,6 +33,7 @@ const settingsBindings = vi.hoisted(() => ({
   AppearanceSettings: vi.fn(),
   SetCanvasFontSize: vi.fn(),
   SetCanvasLineSpacing: vi.fn(),
+  SetCanvasPageWidth: vi.fn(),
 }))
 vi.mock(
   '../../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapter/wailsui/settingsservice',
@@ -164,6 +165,23 @@ describe('AgentCanvasPage', () => {
     wrapper.unmount()
   })
 
+  it('lays the canvas out at the narrow measure until the setting says otherwise', async () => {
+    const { wrapper } = await mountPage()
+    expect(wrapper.get('[data-testid="canvas-page-measure"]').classes()).toContain('max-w-3xl')
+    wrapper.unmount()
+  })
+
+  it('lets the full-page width setting widen the measure', async () => {
+    settingsBindings.AppearanceSettings.mockResolvedValue({
+      canvasFontSize: '',
+      canvasLineSpacing: '',
+      canvasPageWidth: 'full',
+    })
+    const { wrapper } = await mountPage()
+    expect(wrapper.get('[data-testid="canvas-page-measure"]').classes()).toContain('max-w-none')
+    wrapper.unmount()
+  })
+
   it('opens on the canvas it was asked for', async () => {
     const { wrapper } = await mountPage({ name: 'perf-report' })
 
@@ -272,6 +290,18 @@ describe('AgentCanvasPage', () => {
 
     expect(scope.value).toEqual({ workspace: 'acme/site', name: null, session: null })
     expect(agents.canvas).toHaveBeenLastCalledWith('acme/site', 'runbook')
+
+    wrapper.unmount()
+  })
+
+  it('offers the global canvases that agents outside every session share', async () => {
+    const { wrapper, scope } = await mountPage()
+
+    await chooseOption(wrapper, 'canvas-page-workspace', '@global')
+    await flushPromises()
+
+    expect(scope.value).toEqual({ workspace: '@global', name: null, session: null })
+    expect(agents.canvases).toHaveBeenCalledWith('@global')
 
     wrapper.unmount()
   })

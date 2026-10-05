@@ -6,6 +6,7 @@
 // pane's reason: canvas writes arrive only through the hive-canvas MCP tools.
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import IconCode from '~icons/lucide/code'
+import IconGlobe from '~icons/lucide/globe'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconX from '~icons/lucide/x'
 import AgentCanvasActions from './AgentCanvasActions.vue'
@@ -22,14 +23,21 @@ import { useEscapeToClose } from '../composables/useEscapeToClose'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { relativeAge } from '../lib/age'
-import { isRepositoryCanvasOwner, type CanvasScope } from '../lib/agentCanvas'
+import {
+  globalCanvasOwner,
+  globalCanvasOwnerLabel,
+  isRepositoryCanvasOwner,
+  type CanvasScope,
+} from '../lib/agentCanvas'
 import { useAgentWorkspaces } from '../stores/useAgentWorkspaces'
+import { useCanvasSettings } from '../stores/useCanvasSettings'
 
 const props = defineProps<{ scope: CanvasScope }>()
 const emit = defineEmits<{ close: []; 'open-url': [url: string]; 'update:scope': [scope: CanvasScope]; setup: [] }>()
 
 const { checking, available, reason, client, workspaces, workspacesLoaded, reloadWorkspaces } = useAgentWorkspaces()
 const { canvas, metas, shown, loading, error, show, wake } = useAgentCanvas(client)
+const { pageWidthClass } = useCanvasSettings()
 
 // The repositories that hold a canvas. A failed read keeps the last list: the
 // picker is a way to move, and the canvas on screen does not depend on it.
@@ -69,6 +77,7 @@ const workspaceOptions = computed<AppSelectOption[]>(() => {
   const options = [
     ...workspaces.value.map((ws) => ({ value: ws.dir, label: ws.name || ws.dir, icon: IconMessagesSquare })),
     ...repositories.value.map((key) => ({ value: key, label: key, icon: IconCode })),
+    { value: globalCanvasOwner, label: globalCanvasOwnerLabel, icon: IconGlobe },
   ]
   // AppSelect draws an unmatched value as blank, and the scope can name an
   // owner neither listing holds yet: a repository with no canvas so far.
@@ -176,9 +185,7 @@ useEscapeToClose(() => emit('close'))
         class="hive-scroll min-h-0 min-w-0 flex-1 overflow-y-auto bg-app"
         data-testid="canvas-page-reader"
       >
-        <!-- Wide enough for an html block laid out in columns, and no wider:
-             prose across the whole window does not read. -->
-        <div class="mx-auto w-full max-w-[1040px] px-10 py-8">
+        <div class="mx-auto w-full px-10 py-8" :class="pageWidthClass" data-testid="canvas-page-measure">
           <AgentCanvasReader
             :canvas="canvas"
             :metas="metas"
