@@ -12,6 +12,7 @@ import { resetInstalledFontsForTests } from '../../composables/useInstalledFonts
 const mocks = vi.hoisted(() => ({
   SetTerminalShowWindows: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
+  SetTerminalSessionAge: vi.fn(),
   SetTerminalFontFamily: vi.fn(),
   SetTerminalFontWeights: vi.fn(),
   Fonts: vi.fn().mockResolvedValue({ all: ['Fira Code', 'Menlo'], monospace: ['Fira Code', 'Menlo'] }),
@@ -25,6 +26,8 @@ vi.mock('../../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapte
     terminalFontWeightBold: 0,
     terminalShowWindows: true,
     terminalPoolSize: 3,
+    terminalShowSessionAge: true,
+    terminalSessionAgeThresholdDays: 5,
   }),
   Fonts: mocks.Fonts,
   SetTheme: vi.fn(),
@@ -33,6 +36,7 @@ vi.mock('../../../bindings/github.com/colonyops/hive/cmd/desktop/internal/adapte
   SetTerminalFontWeights: mocks.SetTerminalFontWeights,
   SetTerminalShowWindows: mocks.SetTerminalShowWindows,
   SetTerminalPoolSize: mocks.SetTerminalPoolSize,
+  SetTerminalSessionAge: mocks.SetTerminalSessionAge,
 }))
 
 beforeEach(() => {
@@ -116,6 +120,25 @@ describe('TerminalSettingsView', () => {
 
     expect(toggle.attributes('aria-checked')).toBe('false')
     expect(mocks.SetTerminalShowWindows).toHaveBeenCalledWith(false)
+  })
+
+  it('disables session age badges and changes their threshold', async () => {
+    const wrapper = mount(TerminalSettingsView)
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="settings-terminal-session-age"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+
+    await toggle.trigger('click')
+    await wrapper.get('[data-testid="settings-terminal-session-age-threshold-increase"]').trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('[data-testid="settings-terminal-session-age-threshold-value"]').text()).toBe('6 days')
+    expect(mocks.SetTerminalSessionAge.mock.calls).toEqual([
+      [false, 5],
+      [false, 6],
+    ])
   })
 
   it('reflects and changes the terminal warm-session count', async () => {
