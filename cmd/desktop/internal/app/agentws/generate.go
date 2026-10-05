@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/colonyops/hive/cmd/desktop/internal/app/mcpcatalog"
 )
@@ -60,10 +61,10 @@ type Result struct {
 // Generate writes everything a workspace needs to run an agent against: a
 // CLAUDE.md copy of AGENTS.md, one generated MCP config per known agent, the
 // enabled skill set at both tree locations, and an empty docs/. It reconciles
-// rather than clears-and-rewrites: .claude/skills/, .agents/skills/ and
-// .codex/ are wholly Hive-owned, so a file no longer in the target set is
-// removed and a file that is stays untouched unless its bytes actually
-// differ (spec §4.3, §4.4).
+// rather than clears-and-rewrites: .codex/ and every skill Hive installed are
+// Hive-owned, so a file no longer in the target set is removed and a file
+// that is stays untouched unless its bytes actually differ (spec §4.3, §4.4).
+// A skill directory Hive did not install is left as it is.
 func Generate(in GenerateInput) (Result, error) {
 	var res Result
 
@@ -91,10 +92,10 @@ func Generate(in GenerateInput) (Result, error) {
 		return Result{}, err
 	}
 
-	if err := reconcileTree(filepath.Join(in.Dir, ".claude", "skills"), skillFiles); err != nil {
+	if err := reconcileSkills(filepath.Join(in.Dir, ".claude", "skills"), skillFiles); err != nil {
 		return Result{}, err
 	}
-	if err := reconcileTree(filepath.Join(in.Dir, ".agents", "skills"), skillFiles); err != nil {
+	if err := reconcileSkills(filepath.Join(in.Dir, ".agents", "skills"), skillFiles); err != nil {
 		return Result{}, err
 	}
 
@@ -173,20 +174,74 @@ func generateMCPFiles(dir string, servers map[string]mcpcatalog.Server) error {
 	return nil
 }
 
-// skillTree builds the target skill file set from the skills the workspace's
-// packages selected. Keys are "<slug>/SKILL.md", relative to a skills tree
-// root. The generator reads no library and expands no pattern of its own:
-// resolution happens before Generate is called, which is what keeps the
-// generator pure (spec §4.4).
+// skillTree maps each skill the workspace's packages selected to its
+// SKILL.md body, keyed by slug. The generator reads no library and expands no
+// pattern of its own: resolution happens before Generate is called, which is
+// what keeps the generator pure (spec §4.4).
 func skillTree(enabled []RenderedSkill) (target map[string][]byte, err error) {
 	target = make(map[string][]byte, len(enabled))
 	for _, rs := range enabled {
 		if !validSlug(rs.Slug) {
 			return nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, rs.Slug)
 		}
-		target[filepath.Join(rs.Slug, skillFileName)] = []byte(rs.Body)
+		target[rs.Slug] = []byte(rs.Body)
 	}
 	return target, nil
+}
+
+// reconcileSkills makes dir hold exactly the target skills among the ones
+// Hive installed, and leaves every other skill directory alone: an agent in
+// the workspace may write its own skills here
+// (ADR agents-write-their-own-skills-into-a-workspace). installedListName
+// records the slugs Hive wrote, so a skill dropped from the target set is
+// removed and one Hive never wrote is not. A directory with no record yet
+// removes nothing, because it cannot tell its own skills from an agent's.
+// A target slug an agent also used is overwritten: the package wins a
+// name both claim.
+func reconcileSkills(dir string, target map[string][]byte) error {
+	installed, err := readInstalledSkills(dir)
+	if err != nil {
+		return err
+	}
+	for _, slug := range installed {
+		if _, ok := target[slug]; ok || !validSlug(slug) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, slug)); err != nil {
+			return fmt.Errorf("agentws: remove skill %s: %w", slug, err)
+		}
+	}
+
+	slugs := make([]string, 0, len(target))
+	for slug := range target {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	for _, slug := range slugs {
+		if err := reconcileTree(filepath.Join(dir, slug), map[string][]byte{skillFileName: target[slug]}); err != nil {
+			return err
+		}
+	}
+
+	listPath := filepath.Join(dir, installedListName)
+	if len(slugs) == 0 {
+		if err := os.Remove(listPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("agentws: remove %s: %w", listPath, err)
+		}
+		return nil
+	}
+	return writeIfDifferent(listPath, []byte(strings.Join(slugs, "\n")+"\n"))
+}
+
+func readInstalledSkills(dir string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, installedListName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agentws: read %s: %w", installedListName, err)
+	}
+	return strings.Fields(string(data)), nil
 }
 
 // validSlug reports whether slug resolves to a direct child of the directory
@@ -199,7 +254,7 @@ func validSlug(slug string) bool {
 }
 
 // reconcileTree makes dir contain exactly the files in target — each key a
-// path relative to dir. dir is a Hive-owned subtree (a skills tree or
+// path relative to dir. dir is a Hive-owned subtree (one installed skill or
 // .codex/): a file already there but not in target is removed, a directory
 // left empty by that removal is pruned, and a file in target is written only
 // when its bytes differ from what is already on disk.
