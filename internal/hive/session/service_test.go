@@ -972,7 +972,7 @@ func TestRecycleSession_KillsPersistedTargetAndClearsIt(t *testing.T) {
 	assert.Empty(t, recycled.GetMeta(session.MetaTmuxSession), "a reused clone must target its new slug, not the killed tmux session")
 }
 
-func TestCreateSession_RecycledSessionKeepsPathAndResetsCreatedAt(t *testing.T) {
+func TestCreateSession_RecycledSessionKeepsPathAndResetsAge(t *testing.T) {
 	store := newMockStore()
 	cfg := &config.Config{
 		DataDir: t.TempDir(),
@@ -1005,8 +1005,9 @@ func TestCreateSession_RecycledSessionKeepsPathAndResetsCreatedAt(t *testing.T) 
 	assert.Equal(t, recycledPath, sess.Path, "path must not change on reactivation")
 	assert.Equal(t, "new-name", sess.Name)
 	assert.Equal(t, session.StateActive, sess.State)
-	assert.True(t, sess.CreatedAt.After(previousCreatedAt), "reactivation starts a new session age")
-	assert.Equal(t, sess.CreatedAt, sess.UpdatedAt)
+	assert.Equal(t, previousCreatedAt, sess.CreatedAt)
+	assert.True(t, sess.ActivatedAt().After(previousCreatedAt), "reactivation starts a new session age")
+	assert.True(t, sess.ActivatedAt().Equal(sess.UpdatedAt))
 }
 
 func TestCreateSession_DuplicateNameRejected(t *testing.T) {

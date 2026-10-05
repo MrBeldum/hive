@@ -81,23 +81,19 @@ func TestStore(t *testing.T) {
 
 		store := NewSessionStore(database)
 
-		originalCreatedAt := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
 		sess := session.Session{
-			ID:        "update-test",
-			Name:      "original",
-			State:     session.StateActive,
-			CreatedAt: originalCreatedAt,
+			ID:    "update-test",
+			Name:  "original",
+			State: session.StateActive,
 		}
 		require.NoError(t, store.Save(ctx, sess), "Save")
 
 		sess.Name = "updated"
-		sess.CreatedAt = originalCreatedAt.Add(time.Hour)
 		require.NoError(t, store.Save(ctx, sess), "Save update")
 
 		got, err := store.Get(ctx, "update-test")
 		require.NoError(t, err, "Get")
 		assert.Equal(t, "updated", got.Name)
-		assert.True(t, sess.CreatedAt.Equal(got.CreatedAt))
 
 		sessions, _ := store.List(ctx)
 		assert.Len(t, sessions, 1, "got %d sessions, want 1", len(sessions))
